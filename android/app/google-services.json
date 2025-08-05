@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "889507384517",
+    "project_id": "ecominds2-3c623",
+    "storage_bucket": "ecominds2-3c623.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889507384517:android:3e172a6daa0bdc2c99b4ac",
+        "android_client_info": {
+          "package_name": "com.example.master_application"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDk2Sagly5KN1LImoeeCl6PvFgtpJm7w4s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
