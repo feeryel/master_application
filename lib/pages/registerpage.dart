@@ -13,7 +13,10 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+  bool _obscurePassword = true; // Ajouté pour gérer la visibilité du mot de passe
 
+  // Contrôleurs pour les champs de texte
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final nomController = TextEditingController();
@@ -43,7 +46,10 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> registerUser() async {
     if (!_formKey.currentState!.validate()) return;
 
+    setState(() => _isLoading = true);
+
     try {
+      // Tentative de création de compte (va échouer si email existe déjà)
       final credential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
         email: emailController.text.trim(),
@@ -52,32 +58,67 @@ class _RegisterPageState extends State<RegisterPage> {
 
       final uid = credential.user!.uid;
 
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      // Utiliser un batch pour les écritures Firestore
+      final batch = FirebaseFirestore.instance.batch();
+      
+      // Document utilisateur principal
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      batch.set(userRef, {
         'uid': uid,
         'email': emailController.text.trim(),
         'role': selectedRole,
+        'createdAt': FieldValue.serverTimestamp(),
       });
 
-      final additionalData = getDataByRole();
-
-      await FirebaseFirestore.instance
+      // Document spécifique au rôle
+      final roleRef = FirebaseFirestore.instance
           .collection('${selectedRole}s')
-          .doc(uid)
-          .set({...additionalData, 'uid': uid});
-await FcmTokenHelper.saveToken();
+          .doc(uid);
+      batch.set(roleRef, {
+        ...getDataByRole(),
+        'uid': uid,
+      });
 
+      await batch.commit();
+      await FcmTokenHelper.saveToken();
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("✅ Inscription réussie !")),
+        const SnackBar(
+          content: Text("✅ Inscription réussie !"),
+          backgroundColor: Colors.green,
+        ),
       );
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
+    } on FirebaseAuthException catch (e) {
+      String errorMessage = 'Une erreur est survenue';
+      if (e.code == 'email-already-in-use') {
+        errorMessage = 'Un compte existe déjà avec cet email';
+      } else if (e.code == 'weak-password') {
+        errorMessage = 'Le mot de passe est trop faible';
+      } else if (e.code == 'invalid-email') {
+        errorMessage = 'Email invalide';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("❌ Erreur : $errorMessage"),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("❌ Erreur : ${e.toString()}")),
+        SnackBar(
+          content: Text("❌ Erreur : ${e.toString()}"),
+          backgroundColor: Colors.red,
+        ),
       );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -85,23 +126,23 @@ await FcmTokenHelper.saveToken();
     switch (selectedRole) {
       case 'etudiant':
         return {
-          'nom': nomController.text,
-          'prenom': prenomController.text,
-          'numTel': telController.text,
+          'nom': nomController.text.trim(),
+          'prenom': prenomController.text.trim(),
+          'numTel': telController.text.trim(),
         };
       case 'etablissement':
         return {
-          'nom': nomController.text,
-          'categorie': categorieController.text,
-          'region': regionController.text,
-          'numTel': telController.text,
+          'nom': nomController.text.trim(),
+          'categorie': categorieController.text.trim(),
+          'region': regionController.text.trim(),
+          'numTel': telController.text.trim(),
         };
       case 'entreprise':
         return {
-          'nom': nomController.text,
-          'numTel': telController.text,
-          'rne': rneController.text,
-          'codeFiscale': codeFiscaleController.text,
+          'nom': nomController.text.trim(),
+          'numTel': telController.text.trim(),
+          'rne': rneController.text.trim(),
+          'codeFiscale': codeFiscaleController.text.trim(),
         };
       default:
         return {};
@@ -118,7 +159,16 @@ await FcmTokenHelper.saveToken();
             children: [
               Container(
                 width: double.infinity,
-                color: const Color(0xFF226D68),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0xFF226D68),
+                      Color(0xFF2A8C82),
+                    ],
+                  ),
+                ),
                 padding: const EdgeInsets.symmetric(vertical: 40),
                 child: Column(
                   children: [
@@ -129,9 +179,11 @@ await FcmTokenHelper.saveToken();
                     const SizedBox(height: 12),
                     const Text(
                       'EcoMinds',
-                      style: TextStyle(fontSize: 26,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white),
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                   ],
                 ),
@@ -141,7 +193,9 @@ await FcmTokenHelper.saveToken();
                 child: Card(
                   elevation: 8,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  shadowColor: const Color(0xFF226D68).withOpacity(0.3),
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
                     child: Form(
@@ -153,80 +207,161 @@ await FcmTokenHelper.saveToken();
                             child: Text(
                               "Créer un compte",
                               style: TextStyle(
-                                  fontSize: 22, fontWeight: FontWeight.bold),
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF226D68),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          const Text("Choisir votre rôle :",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _buildInlineRadio("Étudiant", 'etudiant'),
-                              _buildInlineRadio(
-                                  "Établissement", 'etablissement'),
-                              _buildInlineRadio("Entreprise", 'entreprise'),
-                            ],
+                          const SizedBox(height: 16),
+                          const Text(
+                            "Choisir votre rôle :",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          _buildTextField(nomController, "Nom",
-                              validator: true),
+                          const SizedBox(height: 8),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _buildRoleChip("Étudiant", 'etudiant'),
+                                const SizedBox(width: 8),
+                                _buildRoleChip("Établissement", 'etablissement'),
+                                const SizedBox(width: 8),
+                                _buildRoleChip("Entreprise", 'entreprise'),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _buildTextField(
+                            nomController,
+                            "Nom",
+                            validator: true,
+                            icon: Icons.person_outline,
+                          ),
                           if (selectedRole == 'etudiant')
                             _buildTextField(
-                                prenomController, "Prénom", validator: true),
-                          _buildTextField(telController, "Numéro de téléphone",
-                              type: TextInputType.phone),
+                              prenomController,
+                              "Prénom",
+                              validator: true,
+                              icon: Icons.person_outlined,
+                            ),
+                          _buildTextField(
+                            telController,
+                            "Numéro de téléphone",
+                            type: TextInputType.phone,
+                            validator: true,
+                            icon: Icons.phone_android_outlined,
+                          ),
                           if (selectedRole == 'etablissement') ...[
-                            _buildTextField(categorieController, "Catégorie"),
-                            _buildTextField(regionController, "Région"),
+                            _buildTextField(
+                              categorieController,
+                              "Catégorie",
+                              icon: Icons.category_outlined,
+                            ),
+                            _buildTextField(
+                              regionController,
+                              "Région",
+                              icon: Icons.location_on_outlined,
+                            ),
                           ],
                           if (selectedRole == 'entreprise') ...[
-                            _buildTextField(rneController, "RNE"),
                             _buildTextField(
-                                codeFiscaleController, "Code fiscale"),
+                              rneController,
+                              "RNE",
+                              icon: Icons.business_outlined,
+                            ),
+                            _buildTextField(
+                              codeFiscaleController,
+                              "Code fiscale",
+                              icon: Icons.credit_card_outlined,
+                            ),
                           ],
-                          _buildTextField(emailController, "Email",
-                              type: TextInputType.emailAddress,
-                              validator: true),
-                          _buildTextField(passwordController, "Mot de passe",
-                              obscure: true, validator: true),
-                          const SizedBox(height: 20),
+                          _buildTextField(
+                            emailController,
+                            "Email",
+                            type: TextInputType.emailAddress,
+                            validator: true,
+                            icon: Icons.email_outlined,
+                          ),
+                          _buildTextField(
+                            passwordController,
+                            "Mot de passe",
+                            obscure: _obscurePassword,
+                            validator: true,
+                            icon: Icons.lock_outlined,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword 
+                                  ? Icons.visibility_outlined 
+                                  : Icons.visibility_off_outlined,
+                                color: Colors.grey,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 24),
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: registerUser,
+                              onPressed: _isLoading ? null : registerUser,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF226D68),
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 14),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
+                                elevation: 3,
                               ),
-                              child: const Text(
-                                "S'inscrire",
-                                style: TextStyle(
-                                    fontSize: 16, color: Colors.white),
-                              ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      height: 24,
+                                      width: 24,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text(
+                                      "S'inscrire",
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 16),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Text("Vous avez déjà un compte ?"),
+                              const Text(
+                                "Vous avez déjà un compte ?",
+                                style: TextStyle(color: Colors.grey),
+                              ),
                               TextButton(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) => const LoginPage()),
-                                  );
-                                },
+                                onPressed: _isLoading
+                                    ? null
+                                    : () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                              builder: (_) => const LoginPage()),
+                                        );
+                                      },
                                 child: const Text(
                                   "Connectez-vous",
-                                  style: TextStyle(color: Color(0xFF226D68)),
+                                  style: TextStyle(
+                                    color: Color(0xFF226D68),
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ],
@@ -236,7 +371,7 @@ await FcmTokenHelper.saveToken();
                     ),
                   ),
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -244,41 +379,79 @@ await FcmTokenHelper.saveToken();
     );
   }
 
-  Widget _buildInlineRadio(String label, String value) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Radio<String>(
-          value: value,
-          groupValue: selectedRole,
-          onChanged: (val) => setState(() => selectedRole = val!),
+  Widget _buildRoleChip(String label, String value) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selectedRole == value,
+      onSelected: (selected) => setState(() => selectedRole = value),
+      selectedColor: const Color(0xFF226D68).withOpacity(0.2),
+      labelStyle: TextStyle(
+        color: selectedRole == value ? const Color(0xFF226D68) : Colors.black,
+        fontWeight: FontWeight.w500,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: selectedRole == value 
+              ? const Color(0xFF226D68) 
+              : Colors.grey.shade300,
+          width: 1.5,
         ),
-        Text(label),
-      ],
+      ),
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String label,
-      {TextInputType type = TextInputType
-          .text, bool obscure = false, bool validator = false}) {
+  Widget _buildTextField(
+    TextEditingController controller,
+    String label, {
+    TextInputType type = TextInputType.text,
+    bool obscure = false,
+    bool validator = false,
+    IconData? icon,
+    Widget? suffixIcon,
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      padding: const EdgeInsets.only(bottom: 16),
       child: TextFormField(
         controller: controller,
         keyboardType: type,
         obscureText: obscure,
         decoration: InputDecoration(
           labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          prefixIcon: icon != null 
+              ? Icon(icon, color: const Color(0xFF226D68), size: 22) 
+              : null,
+          suffixIcon: suffixIcon,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.grey),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF226D68), width: 2),
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 16,
+            horizontal: 16,
+          ),
         ),
         validator: validator
-            ? (val) {
-          if (val == null || val.isEmpty) return 'Champ requis';
-          if (label == "Mot de passe" && val.length < 6) {
-            return 'Minimum 6 caractères';
-          }
-          return null;
-        }
+            ? (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Ce champ est requis';
+                }
+                if (label.contains('Email') && !value.contains('@')) {
+                  return 'Email invalide';
+                }
+                if (label.contains('Mot de passe') && value.length < 6) {
+                  return '6 caractères minimum';
+                }
+                if (label.contains('téléphone') && 
+                    !RegExp(r'^[0-9]+$').hasMatch(value)) {
+                  return 'Numéro invalide';
+                }
+                return null;
+              }
             : null,
       ),
     );

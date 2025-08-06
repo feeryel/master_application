@@ -5,8 +5,12 @@ class GestionPostulationsPage extends StatelessWidget {
   const GestionPostulationsPage({super.key});
 
   Future<String> _getTitreAction(String idAction) async {
-    final doc = await FirebaseFirestore.instance.collection('actions_volontariat').doc(idAction).get();
-    return doc.data()?['titre'] ?? 'Action inconnue';
+    try {
+      final doc = await FirebaseFirestore.instance.collection('actions_volontariat').doc(idAction).get();
+      return doc.data()?['titre']?.toString() ?? 'Action inconnue';
+    } catch (e) {
+      return 'Action inconnue';
+    }
   }
 
   @override
@@ -31,9 +35,10 @@ class GestionPostulationsPage extends StatelessWidget {
             itemCount: postulations.length,
             itemBuilder: (context, index) {
               final postulation = postulations[index];
-              final idAction = postulation['idAction'];
-              final email = postulation.data().toString().contains('email') ? postulation['email'] : 'Email inconnu';
-              final idEtudiant = postulation.data().toString().contains('idEtudiant') ? postulation['idEtudiant'] : 'Inconnu';
+              final data = postulation.data() as Map<String, dynamic>? ?? {};
+              final idAction = data['idAction']?.toString() ?? '';
+              final email = data['email']?.toString() ?? 'Email inconnu';
+              final idEtudiant = data['idEtudiant']?.toString() ?? 'Inconnu';
 
               return FutureBuilder<String>(
                 future: _getTitreAction(idAction),
