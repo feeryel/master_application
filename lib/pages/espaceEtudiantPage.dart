@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -22,6 +21,14 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
   bool _isLoadingMore = false;
   DocumentSnapshot? _lastDocument;
   Map<String, dynamic>? _etudiantData;
+  final TextEditingController _nomController = TextEditingController();
+  final TextEditingController _prenomController = TextEditingController();
+  final TextEditingController _telController = TextEditingController();
+  int _selectedIndex = 0; // Pour la navigation entre onglets
+
+  // Liste des pages disponibles
+  final List<Widget> _pages = [];
+  final PageController _pageController = PageController();
 
   @override
   void initState() {
@@ -35,6 +42,10 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
   void dispose() {
     _candidatureSub?.cancel();
     _scrollController.dispose();
+    _nomController.dispose();
+    _prenomController.dispose();
+    _telController.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -98,94 +109,95 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
     }
   }
 
-  void _setupNotifications() {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+ void _setupNotifications() {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return;
 
-    _candidatureSub = FirebaseFirestore.instance
-        .collection('postulations')
-        .where('idEtudiant', isEqualTo: uid)
-        .snapshots()
-        .listen((snapshot) async {
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.modified) {
-          final data = change.doc.data() as Map<String, dynamic>? ?? {};
-          if (data.isEmpty) continue;
+  _candidatureSub = FirebaseFirestore.instance
+      .collection('postulations')
+      .where('idEtudiant', isEqualTo: uid)
+      .snapshots()
+      .listen((snapshot) async {
+    for (var change in snapshot.docChanges) {
+      if (change.type == DocumentChangeType.modified) {
+        final data = change.doc.data() as Map<String, dynamic>? ?? {};
+        if (data.isEmpty) continue;
 
-          final newStatut = data['statut']?.toString() ?? '';
-          if (newStatut == 'accepté') {
-            await FirebaseFirestore.instance
-                .collection('etudiants')
-                .doc(uid)
-                .update({'points': FieldValue.increment(10)});
+        final newStatut = data['statut']?.toString() ?? '';
+        if (newStatut == 'accepté') {
+          await FirebaseFirestore.instance
+              .collection('etudiants')
+              .doc(uid)
+              .update({'points': FieldValue.increment(10)});
 
-            NotificationService.showFlutterNotification(
-              RemoteMessage(
-                notification: RemoteNotification(
-                  title: 'Candidature acceptée',
-                  body: '🎉 Félicitations! Vous avez gagné 10 points!',
-                ),
-              ),
-            );
-          } else if (newStatut == 'refusé') {
-            NotificationService.showFlutterNotification(
-              RemoteMessage(
-                notification: RemoteNotification(
-                  title: 'Candidature refusée',
-                  body: '❌ Votre candidature a été refusée.',
-                ),
-              ),
-            );
-          }
+          NotificationService.showLocalNotification(
+            title: 'Candidature acceptée',
+            body: '🎉 Félicitations! Vous avez gagné 10 points!',
+          );
+        } else if (newStatut == 'refusé') {
+          NotificationService.showLocalNotification(
+            title: 'Candidature refusée',
+            body: '❌ Votre candidature a été refusée.',
+          );
         }
       }
-    });
-  }
-
-  Future<void> postuler(String idAction) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception("Veuillez vous connecter");
-
-      // Vérifier si déjà postulé
-      final existing = await FirebaseFirestore.instance
-          .collection('postulations')
-          .where('idAction', isEqualTo: idAction)
-          .where('idEtudiant', isEqualTo: user.uid)
-          .limit(1)
-          .get();
-
-      if (existing.docs.isNotEmpty) {
-        throw Exception("Vous avez déjà postulé à cette action");
-      }
-
-      // Créer la postulation
-      await FirebaseFirestore.instance.collection('postulations').add({
-        'idAction': idAction,
-        'idEtudiant': user.uid,
-        'email': user.email,
-        'nomComplet': '${_etudiantData?['prenom']} ${_etudiantData?['nom']}',
-        'createdAt': Timestamp.now(),
-        'statut': 'en_attente',
-        'idEtablissement': (await FirebaseFirestore.instance
-            .collection('actions_volontariat')
-            .doc(idAction)
-            .get())
-            .data()?['idEtablissement'],
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Postulation envoyée avec succès !")),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur: ${e.toString()}")),
-      );
     }
-  }
+  });
+}
+ // ... (le reste du code reste inchangé)
 
+Future<void> postuler(String idAction) async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception("Veuillez vous connecter");
+
+    // Vérifier seulement les candidatures non annulées
+    final existing = await FirebaseFirestore.instance
+        .collection('postulations')
+        .where('idAction', isEqualTo: idAction)
+        .where('idEtudiant', isEqualTo: user.uid)
+        .where('statut', whereNotIn: ['annulée'])
+        .limit(1)
+        .get();
+
+    if (existing.docs.isNotEmpty) {
+      throw Exception("Vous avez déjà postulé à cette action");
+    }
+
+    // Créer la postulation
+    await FirebaseFirestore.instance.collection('postulations').add({
+      'idAction': idAction,
+      'idEtudiant': user.uid,
+      'email': user.email,
+      'nomComplet': '${_etudiantData?['prenom']} ${_etudiantData?['nom']}',
+      'createdAt': Timestamp.now(),
+      'statut': 'en_attente',
+      'idEtablissement': (await FirebaseFirestore.instance
+          .collection('actions_volontariat')
+          .doc(idAction)
+          .get())
+          .data()?['idEtablissement'],
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Postulation envoyée avec succès !"),
+        backgroundColor: Colors.green,
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Erreur: ${e.toString()}"),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+
+// ... (le reste du code reste inchangé)
   Widget _buildDrawer() {
     final user = FirebaseAuth.instance.currentUser;
     final points = _etudiantData?['points'] ?? 0;
@@ -193,43 +205,371 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
     final nom = _etudiantData?['nom'] ?? '';
 
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
+      width: MediaQuery.of(context).size.width * 0.8,
+      child: Column(
         children: [
           UserAccountsDrawerHeader(
-            accountName: Text('$prenom $nom'),
+            accountName: Text('$prenom $nom', 
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             accountEmail: Text(user?.email ?? ''),
             currentAccountPicture: CircleAvatar(
               backgroundColor: Colors.white,
-              child: Text(prenom.isNotEmpty ? prenom[0].toUpperCase() : '?'),
+              child: Text(
+                prenom.isNotEmpty ? prenom[0].toUpperCase() : '?',
+                style: TextStyle(fontSize: 24, color: Color(0xFF226D68)),
+              ),
             ),
-            decoration: const BoxDecoration(color: Color(0xFF226D68)),
+            decoration: BoxDecoration(
+              color: Color(0xFF226D68),
+            ),
           ),
-          ListTile(
-            leading: const Icon(Icons.assignment_turned_in),
-            title: const Text('Mes postulations'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context, 
-                MaterialPageRoute(builder: (_) => const MesCandidaturesPage()));
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.person),
-            title: const Text('Mon profil'),
-            onTap: _showProfileDialog,
-          ),
-          ListTile(
-            leading: const Icon(Icons.star),
-            title: Text('Mes points: $points'),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.logout),
-            title: const Text('Déconnexion'),
-            onTap: _logout,
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _buildDrawerItem(
+                  icon: Icons.home,
+                  title: 'Accueil',
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => _selectedIndex = 0);
+                    _pageController.jumpToPage(0);
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.assignment_turned_in,
+                  title: 'Mes postulations',
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => _selectedIndex = 1);
+                    _pageController.jumpToPage(1);
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.person,
+                  title: 'Mon profil',
+                  onTap: _showProfileDialog,
+                ),
+                _buildDrawerItem(
+                  icon: Icons.star,
+                  title: 'Mes points: $points',
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => _selectedIndex = 2);
+                    _pageController.jumpToPage(2);
+                  },
+                ),
+                Divider(height: 1, thickness: 1, indent: 20, endIndent: 20),
+                _buildDrawerItem(
+                  icon: Icons.logout,
+                  title: 'Déconnexion',
+                  onTap: _logout,
+                  color: Colors.red,
+                ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDrawerItem({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color ?? Color(0xFF226D68)),
+      title: Text(title, style: TextStyle(color: color ?? Colors.black87)),
+      onTap: onTap,
+      contentPadding: EdgeInsets.symmetric(horizontal: 20),
+      minLeadingWidth: 10,
+    );
+  }
+
+  Widget _buildWelcomePage() {
+    final prenom = _etudiantData?['prenom'] ?? '';
+    final points = _etudiantData?['points'] ?? 0;
+    
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Bonjour, $prenom!',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF226D68),
+            ),
+          ),
+          SizedBox(height: 10),
+          Text(
+            'Bienvenue dans votre espace étudiant',
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+          ),
+          SizedBox(height: 30),
+          
+          // Carte de bienvenue avec points
+          Card(
+            elevation: 3,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.star, color: Colors.amber, size: 30),
+                      SizedBox(width: 10),
+                      Text(
+                        'Vos points',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 15),
+                  Text(
+                    '$points',
+                    style: TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF226D68),
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    'Points accumulés',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: 30),
+          
+          // Applications connues
+          Text(
+            'Applications recommandées',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF226D68),
+            ),
+          ),
+          SizedBox(height: 15),
+          GridView.count(
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 15,
+            mainAxisSpacing: 15,
+            children: [
+              _buildAppCard(
+                icon: Icons.school,
+                title: 'Cours en ligne',
+                color: Colors.blue,
+              ),
+              _buildAppCard(
+                icon: Icons.volunteer_activism,
+                title: 'Bénévolat',
+                color: Colors.green,
+              ),
+              _buildAppCard(
+                icon: Icons.event,
+                title: 'Événements',
+                color: Colors.orange,
+              ),
+              _buildAppCard(
+                icon: Icons.work,
+                title: 'Stages',
+                color: Colors.purple,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAppCard({required IconData icon, required String title, required Color color}) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(15),
+        onTap: () {},
+        child: Padding(
+          padding: EdgeInsets.all(15),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 40, color: color),
+              SizedBox(height: 10),
+              Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPointsPage() {
+    final points = _etudiantData?['points'] ?? 0;
+    final prenom = _etudiantData?['prenom'] ?? '';
+    
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(20),
+      child: Column(
+        children: [
+          Card(
+            elevation: 3,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Padding(
+              padding: EdgeInsets.all(25),
+              child: Column(
+                children: [
+                  Text(
+                    'Votre score',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    '$points',
+                    style: TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF226D68),
+                    ),
+                  ),
+                  SizedBox(height: 5),
+                  Text(
+                    'Points',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  SizedBox(height: 20),
+                  LinearProgressIndicator(
+                    value: points / 100, // Supposons que 100 est le max
+                    backgroundColor: Colors.grey[200],
+                    color: Color(0xFF226D68),
+                    minHeight: 10,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    '${(points / 100 * 100).toStringAsFixed(0)}% du score maximal',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: 30),
+          
+          Text(
+            'Comment gagner plus de points?',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF226D68),
+            ),
+          ),
+          SizedBox(height: 15),
+          
+          _buildPointInfo(
+            icon: Icons.volunteer_activism,
+            title: 'Postuler à une action',
+            points: '+10 points',
+            color: Colors.green,
+          ),
+          _buildPointInfo(
+            icon: Icons.check_circle,
+            title: 'Candidature acceptée',
+            points: '+10 points',
+            color: Colors.green,
+          ),
+          _buildPointInfo(
+            icon: Icons.event_available,
+            title: 'Participation confirmée',
+            points: '+20 points',
+            color: Colors.green,
+          ),
+          _buildPointInfo(
+            icon: Icons.leaderboard,
+            title: 'Classement hebdomadaire',
+            points: 'Jusqu\'à +50 points',
+            color: Colors.orange,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPointInfo({required IconData icon, required String title, required String points, required Color color}) {
+    return Card(
+      margin: EdgeInsets.only(bottom: 15),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(15),
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color),
+            ),
+            SizedBox(width: 15),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            Chip(
+              label: Text(
+                points,
+                style: TextStyle(color: Colors.white),
+              ),
+              backgroundColor: color,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -237,41 +577,349 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
   void _showProfileDialog() {
     final prenom = _etudiantData?['prenom'] ?? '';
     final nom = _etudiantData?['nom'] ?? '';
-    final numTel = _etudiantData?['numTel'] ?? 'Non renseigné';
+    final numTel = _etudiantData?['numTel'] ?? '';
     final points = _etudiantData?['points'] ?? 0;
     final user = FirebaseAuth.instance.currentUser;
+
+    _prenomController.text = prenom;
+    _nomController.text = nom;
+    _telController.text = numTel;
 
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Mon Profil'),
+          title: const Text('Mon Profil', 
+            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF226D68))),
           content: SingleChildScrollView(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 CircleAvatar(
                   radius: 50,
-                  child: Text(prenom.isNotEmpty ? prenom[0].toUpperCase() : '?'),
+                  backgroundColor: Color(0xFF226D68).withOpacity(0.2),
+                  child: Text(
+                    prenom.isNotEmpty ? prenom[0].toUpperCase() : '?',
+                    style: TextStyle(fontSize: 30, color: Color(0xFF226D68)),
+                ),),
+                const SizedBox(height: 20),
+
+                TextFormField(
+                  controller: _prenomController,
+                  decoration: InputDecoration(
+                    labelText: 'Prénom',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                Text('$prenom $nom', 
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text(user?.email ?? ''),
-                const SizedBox(height: 8),
-                Text('Téléphone: $numTel'),
-                const SizedBox(height: 16),
-                Text('Points: $points',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _nomController,
+                  decoration: InputDecoration(
+                    labelText: 'Nom',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _telController,
+                  decoration: InputDecoration(
+                    labelText: 'Téléphone',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.phone),
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Color(0xFF226D68).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.star, color: Colors.amber),
+                      const SizedBox(width: 8),
+                      Text('Points: $points',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(user?.email ?? '',
+                  style: TextStyle(color: Colors.grey)),
               ],
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Fermer'),
+              child: Text('Annuler', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: _updateProfile,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Color(0xFF226D68),
+              ),
+              child: Text('Enregistrer',style: TextStyle(color: Colors.white)),
             ),
           ],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _updateProfile() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      await FirebaseFirestore.instance.collection('etudiants').doc(user.uid).update({
+        'prenom': _prenomController.text,
+        'nom': _nomController.text,
+        'numTel': _telController.text,
+      });
+
+      final updatedDoc = await FirebaseFirestore.instance
+          .collection('etudiants')
+          .doc(user.uid)
+          .get();
+          
+      setState(() => _etudiantData = updatedDoc.data());
+      
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Profil mis à jour avec succès!'), 
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: ${e.toString()}'), 
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  String _formatDate(dynamic date) {
+    if (date == null) return 'Date inconnue';
+    
+    if (date is Timestamp) {
+      final dt = date.toDate();
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } else if (date is String) {
+      return date;
+    }
+    return 'Date inconnue';
+  }
+
+  Widget _buildActionCard(DocumentSnapshot action) {
+    final data = action.data() as Map<String, dynamic>;
+    final points = data['points'] ?? 10;
+    final titre = data['titre'] ?? 'Titre inconnu';
+    final description = data['description'] ?? '';
+    final lieu = data['lieu'] ?? 'Lieu non spécifié';
+    final dateDebut = _formatDate(data['dateDebut']);
+    final dateFin = _formatDate(data['dateFin']);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15)),
+      elevation: 2,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(15),
+        onTap: () => _showActionDetails(data),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      titre,
+                      style: const TextStyle(
+                        fontSize: 18, 
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF226D68)),
+                    ),
+                  ),
+                  Chip(
+                    label: Text('$points pts', 
+                      style: TextStyle(color: Colors.white)),
+                    backgroundColor: Color(0xFF226D68),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (description.isNotEmpty) 
+                Text(description, 
+                  style: TextStyle(color: Colors.grey[700])),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.location_on, size: 18, color: Colors.grey),
+                  const SizedBox(width: 5),
+                  Text(lieu, style: TextStyle(color: Colors.grey[700])),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Row(
+                children: [
+                  Icon(Icons.calendar_today, size: 18, color: Colors.grey),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Du $dateDebut au $dateFin',
+                    style: TextStyle(color: Colors.grey[700])),
+                ],
+              ),
+              const SizedBox(height: 15),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: () => postuler(action.id),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF226D68),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  ),
+                  child: const Text("Postuler"),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionsPage() {
+    return _loadedActions.isEmpty
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: Color(0xFF226D68)),
+                SizedBox(height: 20),
+                Text('Chargement des actions...',
+                  style: TextStyle(color: Colors.grey)),
+              ],
+            ),
+          )
+        : RefreshIndicator(
+            onRefresh: _loadInitialData,
+            color: Color(0xFF226D68),
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: _loadedActions.length + (_isLoadingMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= _loadedActions.length) {
+                  return Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Center(
+                      child: CircularProgressIndicator(color: Color(0xFF226D68))),
+                  );
+                }
+                return _buildActionCard(_loadedActions[index]);
+              },
+            ),
+          );
+  }
+
+  void _showActionDetails(Map<String, dynamic> data) {
+    final dateDebut = _formatDate(data['dateDebut']);
+    final dateFin = _formatDate(data['dateFin']);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 50,
+                  height: 5,
+                  margin: EdgeInsets.only(bottom: 15),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                ),
+              ),
+              Text(data['titre'] ?? '',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF226D68))),
+              SizedBox(height: 10),
+              Text('Du $dateDebut au $dateFin',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 10),
+              Text(data['description'] ?? '',
+                style: TextStyle(fontSize: 16)),
+              SizedBox(height: 20),
+              if (data['competencesRequises'] != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Compétences requises:',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                    SizedBox(height: 5),
+                    Wrap(
+                      spacing: 5,
+                      children: (data['competencesRequises'] as List<dynamic>)
+                          .map((e) => Chip(label: Text(e.toString())))
+                          .toList(),
+                    ),
+                  ],
+                ),
+              SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    postuler(data['id']);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF226D68),
+                    padding: EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                  ),
+                child: Text(
+  'Postuler maintenant',
+  style: TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.bold,
+    color: Colors.white,
+  ),
+),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -289,91 +937,64 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur: ${e.toString()}")),
+        SnackBar(
+          content: Text("Erreur: ${e.toString()}"), 
+          backgroundColor: Colors.red,
+        ),
       );
     }
-  }
-
-  Widget _buildActionCard(DocumentSnapshot action) {
-    final data = action.data() as Map<String, dynamic>;
-    final points = data['points'] ?? 10;
-    final titre = data['titre'] ?? 'Titre inconnu';
-    final description = data['description'] ?? '';
-    final lieu = data['lieu'] ?? 'Lieu non spécifié';
-    final dateDebut = data['dateDebut'] ?? 'Date inconnue';
-    final dateFin = data['dateFin'] ?? 'Date inconnue';
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12)),
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    titre,
-                    style: const TextStyle(
-                      fontSize: 18, 
-                      fontWeight: FontWeight.bold
-                    ),
-                  ),
-                ),
-                Chip(
-                  label: Text('$points pts'),
-                  backgroundColor: const Color(0xFF226D68).withOpacity(0.2),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (description.isNotEmpty) Text(description),
-            const SizedBox(height: 8),
-            Text("📍 $lieu"),
-            Text("📅 Du $dateDebut au $dateFin"),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton(
-                onPressed: () => postuler(action.id),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF226D68),
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text("Postuler"),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Espace Étudiant"),
+        title: const Text("Espace Étudiant", 
+          style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF226D68),
+        iconTheme: IconThemeData(color: Colors.white),
+        elevation: 0,
       ),
       drawer: _buildDrawer(),
-      body: _loadedActions.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              itemCount: _loadedActions.length + (_isLoadingMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index >= _loadedActions.length) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                return _buildActionCard(_loadedActions[index]);
-              },
-            ),
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (index) {
+          setState(() => _selectedIndex = index);
+        },
+        children: [
+          _buildWelcomePage(),
+          MesCandidaturesPage(),
+          _buildPointsPage(),
+          _buildActionsPage(),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() => _selectedIndex = index);
+          _pageController.jumpToPage(index);
+        },
+        selectedItemColor: Color(0xFF226D68),
+        unselectedItemColor: Colors.grey,
+        items: [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Accueil',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.assignment_turned_in),
+            label: 'Mes candidatures',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.star),
+            label: 'Mes points',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.volunteer_activism),
+            label: 'Actions',
+          ),
+        ],
+      ),
     );
   }
 }

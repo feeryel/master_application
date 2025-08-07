@@ -1,89 +1,97 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 class NotificationService {
-  static final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
+  static final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'postulations_channel', // id
-    'Notifications des postulations', // nom
-    description: 'Ce canal est utilisé pour les notifications des postulations',
+    'postulations_channel',
+    'Notifications des postulations',
+    description: 'Notifications concernant les candidatures',
     importance: Importance.max,
+    playSound: true,
   );
 
   static Future<void> initialize() async {
-    // Crée le channel Android (nécessaire pour Android 8+)
-    await _flutterLocalNotificationsPlugin
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+      android: initializationSettingsAndroid,
+    );
+
+    await _notificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (details) {
+        // Gérer le clic sur la notification
+      },
+    );
+
+    await _createNotificationChannel();
+    await _requestPermissions();
+  }
+
+  static Future<void> _createNotificationChannel() async {
+    await _notificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_channel);
-
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const InitializationSettings initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: DarwinInitializationSettings(
-        // onDidReceiveLocalNotification: (id, title, body, payload) async {
-        //   // Gestion locale sur iOS
-        // },
-      ),
-    );
-
-    await _flutterLocalNotificationsPlugin.initialize(
-      initSettings,
-      // onSelectNotification: (payload) async {
-      //   // Action quand utilisateur clique sur notification
-      // },
-    );
-
-    // Demander les permissions aux utilisateurs (iOS & Android 13+)
-    await FirebaseMessaging.instance.requestPermission();
-
-    // Ecoute en foreground des notifications Firebase Cloud Messaging
-    FirebaseMessaging.onMessage.listen(showFlutterNotification);
   }
 
-  static void showFlutterNotification(RemoteMessage message) {
-    final notification = message.notification;
-    if (notification == null) return;
-
-    final androidDetails = AndroidNotificationDetails(
-      _channel.id,
-      _channel.name,
-      channelDescription: _channel.description,
-      importance: Importance.max,
-      priority: Priority.high,
-    );
-
-    final platformDetails = NotificationDetails(android: androidDetails);
-
-    _flutterLocalNotificationsPlugin.show(
-      notification.hashCode,
-      notification.title,
-      notification.body,
-      platformDetails,
+  static Future<void> _requestPermissions() async {
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
     );
   }
 
-  // --- AJOUTE CETTE MÉTHODE POUR AFFICHER UNE NOTIFICATION LOCALE SIMPLE ---
-  static Future<void> showLocalNotification(String title, String body) async {
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+  static Future<void> showLocalNotification({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    const AndroidNotificationDetails androidNotificationDetails =
+        AndroidNotificationDetails(
       'postulations_channel',
       'Notifications des postulations',
-      channelDescription: 'Ce canal est utilisé pour les notifications des postulations',
+      channelDescription: 'Notifications concernant les postulations',
       importance: Importance.max,
       priority: Priority.high,
+      ticker: 'ticker',
     );
 
-    const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+    const NotificationDetails notificationDetails =
+        NotificationDetails(android: androidNotificationDetails);
 
-    await _flutterLocalNotificationsPlugin.show(
+    await _notificationsPlugin.show(
       0,
       title,
       body,
-      platformDetails,
+      notificationDetails,
+      payload: payload,
     );
+  }
+
+  static Future<void> sendNotificationToStudent({
+    required String studentId,
+    required String title,
+    required String body,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'userId': studentId,
+        'title': title,
+        'body': body,
+        'timestamp': FieldValue.serverTimestamp(),
+        'read': false,
+      });
+    } catch (e) {
+      debugPrint('Error sending notification: $e');
+    }
   }
 }

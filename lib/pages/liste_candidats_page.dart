@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:master_application/pages/notification_service.dart';
 
 class ListeCandidatsPage extends StatefulWidget {
   final String idAction;
@@ -19,11 +20,65 @@ class ListeCandidatsPage extends StatefulWidget {
 class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
   final Map<String, Map<String, dynamic>> _studentsCache = {};
   final ScrollController _scrollController = ScrollController();
-  List<DocumentSnapshot<Map<String, dynamic>>> _loadedPostulations = [];
+  List<DocumentSnapshot> _loadedPostulations = [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
-  DocumentSnapshot<Map<String, dynamic>>? _lastDocument;
+  DocumentSnapshot? _lastDocument;
   String? _errorMessage;
+  String _filterStatut = 'tous';
+
+  Color _getStatusColor(String? statut) {
+    switch (statut?.toLowerCase()) {
+      case 'accepté': return Colors.green;
+      case 'refusé': return Colors.red;
+      case 'annulée': return Colors.grey;
+      default: return Colors.orange;
+    }
+  }
+
+  IconData _getStatusIcon(String? statut) {
+    switch (statut?.toLowerCase()) {
+      case 'accepté': return Icons.check_circle;
+      case 'refusé': return Icons.cancel;
+      case 'annulée': return Icons.block;
+      default: return Icons.access_time;
+    }
+  }
+
+  Widget _buildDetailItem(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.grey[600]),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -34,6 +89,7 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _studentsCache.clear();
     super.dispose();
@@ -55,13 +111,18 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
         _errorMessage = null;
       });
 
-      final Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+      Query query = FirebaseFirestore.instance
           .collection('postulations')
           .where('idAction', isEqualTo: widget.idAction)
-          .orderBy('createdAt', descending: true)
-          .limit(15);
+          .orderBy('createdAt', descending: true);
 
-      final QuerySnapshot<Map<String, dynamic>> snapshot = await query.get();
+      if (_filterStatut != 'tous') {
+        query = query.where('statut', isEqualTo: _filterStatut);
+      } else {
+        query = query.where('statut', whereNotIn: ['annulée']);
+      }
+
+      final snapshot = await query.limit(15).get();
 
       if (mounted) {
         setState(() {
@@ -89,14 +150,18 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     try {
       setState(() => _isLoadingMore = true);
 
-      final Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+      Query query = FirebaseFirestore.instance
           .collection('postulations')
           .where('idAction', isEqualTo: widget.idAction)
-          .orderBy('createdAt', descending: true)
-          .startAfterDocument(_lastDocument!)
-          .limit(15);
+          .orderBy('createdAt', descending: true);
 
-      final QuerySnapshot<Map<String, dynamic>> snapshot = await query.get();
+      if (_filterStatut != 'tous') {
+        query = query.where('statut', isEqualTo: _filterStatut);
+      } else {
+        query = query.where('statut', whereNotIn: ['annulée']);
+      }
+
+      final snapshot = await query.startAfterDocument(_lastDocument!).limit(15).get();
 
       if (mounted) {
         setState(() {
@@ -107,15 +172,25 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isLoadingMore = false;
-          _errorMessage = 'Erreur de chargement: ${e.toString()}';
-        });
+        setState(() => _isLoadingMore = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_errorMessage!)),
+          SnackBar(content: Text('Erreur: ${e.toString()}')),
         );
       }
     }
+  }
+
+  Future<void> _refreshData() async {
+    await _loadInitialData();
+  }
+
+  Future<void> _changeFilter(String newFilter) async {
+    setState(() {
+      _filterStatut = newFilter;
+      _loadedPostulations = [];
+      _lastDocument = null;
+    });
+    await _loadInitialData();
   }
 
   Future<Map<String, dynamic>> _getStudentData(String studentId) async {
@@ -124,7 +199,7 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     }
 
     try {
-      final DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore.instance
+      final doc = await FirebaseFirestore.instance
           .collection('etudiants')
           .doc(studentId)
           .get();
@@ -138,125 +213,105 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement étudiant: ${e.toString()}')),
+          SnackBar(content: Text('Erreur: ${e.toString()}')),
         );
       }
       return {};
     }
   }
 
-  Widget _buildCandidatCard(DocumentSnapshot<Map<String, dynamic>> postulation) {
-    if (!postulation.exists) return const SizedBox();
+  Future<void> _updateStatut(String postulationId, String newStatut) async {
+    try {
+      final postulationDoc = await FirebaseFirestore.instance
+          .collection('postulations')
+          .doc(postulationId)
+          .get();
+      
+      final postulationData = postulationDoc.data()!;
+      final studentId = postulationData['idEtudiant'];
 
-    final data = postulation.data() ?? {};
-    final datePostulation = (data['createdAt'] as Timestamp).toDate();
-    final formattedDate = DateFormat('dd MMM yyyy • HH:mm').format(datePostulation);
+      await FirebaseFirestore.instance
+          .collection('postulations')
+          .doc(postulationId)
+          .update({
+            'statut': newStatut,
+            'traiteLe': Timestamp.now(),
+          });
 
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _getStudentData(data['idEtudiant'] as String),
-      builder: (context, studentSnapshot) {
-        final studentData = studentSnapshot.data ?? {};
-        final nomComplet = studentData.isNotEmpty
-            ? '${studentData['prenom'] ?? ''} ${studentData['nom'] ?? ''}'.trim()
-            : data['nomComplet']?.toString() ?? 'Candidat inconnu';
-        
-        final initials = nomComplet
-            .split(' ')
-            .where((String part) => part.isNotEmpty)
-            .take(2)
-            .map((String part) => part[0])
-            .join()
-            .toUpperCase();
+      await _sendStudentNotification(
+        studentId: studentId,
+        actionId: widget.idAction,
+        newStatus: newStatut,
+      );
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            leading: Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: _getAvatarColor(nomComplet),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  initials,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-            title: Text(
-              nomComplet,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Text(
-                      formattedDate,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            trailing: _buildStatutWidget(data['statut']?.toString()),
-            onTap: () => _showCandidatDetails(context, studentData, data, postulation.id),
-          ),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Statut mis à jour')),
         );
-      },
-    );
+        await _refreshData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${e.toString()}')),
+        );
+      }
+    }
   }
 
-  Color _getAvatarColor(String name) {
-    final colors = [
-      const Color(0xFF226D68),
-      const Color(0xFF3A7D44),
-      const Color(0xFF5C8D89),
-      const Color(0xFF2D767F),
-    ];
-    return colors[name.hashCode % colors.length];
+  Future<void> _sendStudentNotification({
+    required String studentId,
+    required String actionId,
+    required String newStatus,
+  }) async {
+    try {
+      final actionDoc = await FirebaseFirestore.instance
+          .collection('actions_volontariat')
+          .doc(actionId)
+          .get();
+      
+      final titre = actionDoc.data()?['titre'] ?? 'Action inconnue';
+
+      await NotificationService.sendNotificationToStudent(
+        studentId: studentId,
+        title: 'Mise à jour candidature',
+        body: 'Votre candidature pour "$titre" a été ${_getStatusText(newStatus)}',
+      );
+    } catch (e) {
+      debugPrint('Erreur notification: $e');
+    }
+  }
+
+  String _getStatusText(String? statut) {
+    switch (statut?.toLowerCase()) {
+      case 'accepté': return 'acceptée';
+      case 'refusé': return 'refusée';
+      case 'annulée': return 'annulée';
+      default: return 'en attente';
+    }
   }
 
   Widget _buildStatutWidget(String? statut) {
-    final Map<String, Map<String, dynamic>> statusOptions = {
-      'accepté': {'color': Colors.green, 'icon': Icons.check_circle},
-      'refusé': {'color': Colors.red, 'icon': Icons.cancel},
-      'en_attente': {'color': Colors.orange, 'icon': Icons.access_time},
-    };
+    Color color;
+    IconData icon;
 
-    final statusInfo = statusOptions[statut?.toLowerCase()] ?? 
-        {'color': Colors.grey, 'icon': Icons.help_outline};
-
-    final Color color = statusInfo['color']! as Color;
-    final IconData icon = statusInfo['icon']! as IconData;
+    switch (statut?.toLowerCase()) {
+      case 'accepté':
+        color = Colors.green;
+        icon = Icons.check_circle;
+        break;
+      case 'refusé':
+        color = Colors.red;
+        icon = Icons.cancel;
+        break;
+      case 'annulée':
+        color = Colors.grey;
+        icon = Icons.block;
+        break;
+      default:
+        color = Colors.orange;
+        icon = Icons.access_time;
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -270,7 +325,7 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 4),
           Text(
-            statut?.toUpperCase() ?? 'EN ATTENTE',
+            _getStatusText(statut).toUpperCase(),
             style: TextStyle(
               color: color,
               fontSize: 12,
@@ -282,16 +337,113 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     );
   }
 
-  void _showCandidatDetails(
-    BuildContext context,
+  Widget _buildFilterChips() {
+    const filters = [
+      {'value': 'tous', 'label': 'Tous'},
+      {'value': 'en_attente', 'label': 'En attente'},
+      {'value': 'accepté', 'label': 'Acceptés'},
+      {'value': 'refusé', 'label': 'Refusés'},
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: filters.map((filter) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text(filter['label']!),
+              selected: _filterStatut == filter['value'],
+              onSelected: (selected) => _changeFilter(filter['value']!),
+              selectedColor: const Color(0xFF226D68),
+              labelStyle: TextStyle(
+                color: _filterStatut == filter['value'] ? Colors.white : Colors.black,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildCandidatCard(DocumentSnapshot postulation) {
+    final data = postulation.data() as Map<String, dynamic>;
+    final date = (data['createdAt'] as Timestamp).toDate();
+
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _getStudentData(data['idEtudiant']),
+      builder: (context, snapshot) {
+        final student = snapshot.data ?? {};
+        final nomComplet = '${student['prenom']} ${student['nom']}'.trim();
+        final initials = nomComplet.isNotEmpty 
+            ? nomComplet.split(' ').map((n) => n[0]).take(2).join()
+            : '?';
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _showDetailsDialog(postulation, student, data, nomComplet, initials),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: const Color(0xFF226D68), // Couleur fixe pour l'avatar
+                    child: Text(
+                      initials,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nomComplet.isNotEmpty ? nomComplet : 'Candidat inconnu',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat('dd/MM/yyyy à HH:mm').format(date),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildStatutWidget(data['statut']),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showDetailsDialog(
+    DocumentSnapshot postulation,
     Map<String, dynamic> studentData,
     Map<String, dynamic> postulationData,
-    String postulationId,
+    String nomComplet,
+    String initials,
   ) {
-    final nomComplet = '${studentData['prenom'] ?? ''} ${studentData['nom'] ?? ''}'.trim();
-    final initials = nomComplet.isNotEmpty 
-        ? nomComplet.split(' ').where((String e) => e.isNotEmpty).take(2).map((String e) => e[0]).join().toUpperCase()
-        : '?';
+    final statut = postulationData['statut']?.toString().toLowerCase();
+    final postulationId = postulation.id;
 
     showDialog(
       context: context,
@@ -300,228 +452,143 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: _getAvatarColor(nomComplet),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          initials,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF226D68), // Couleur fixe pour l'avatar
+                          shape: BoxShape.circle,
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            nomComplet.isNotEmpty ? nomComplet : 'Candidat inconnu',
+                        child: Center(
+                          child: Text(
+                            initials,
                             style: const TextStyle(
-                              fontSize: 18,
+                              color: Colors.white,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Postulé le ${DateFormat('dd MMM yyyy à HH:mm').format((postulationData['createdAt'] as Timestamp).toDate())}',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              nomComplet.isNotEmpty ? nomComplet : 'Candidat inconnu',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                _buildDetailItem(Icons.account_circle_outlined, 'Nom', studentData['nom']?.toString() ?? postulationData['nom']?.toString() ?? 'Non renseigné'),
-                _buildDetailItem(Icons.account_circle_outlined, 'Prenom', studentData['prenom']?.toString() ?? postulationData['prenom']?.toString() ?? 'Non renseigné'),
-
-                _buildDetailItem(Icons.email, 'Email', studentData['email']?.toString() ?? postulationData['email']?.toString() ?? 'Non renseigné'),
-                _buildDetailItem(Icons.phone, 'Téléphone', studentData['numTel']?.toString() ?? 'Non renseigné'),
-              
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(postulationData['statut']?.toString()).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _getStatusIcon(postulationData['statut']?.toString()),
-                        color: _getStatusColor(postulationData['statut']?.toString()),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Statut: ${_getStatusText(postulationData['statut']?.toString())}',
-                        style: TextStyle(
-                          color: _getStatusColor(postulationData['statut']?.toString()),
-                          fontWeight: FontWeight.bold,
+                            const SizedBox(height: 4),
+                            Text(
+                              'Postulé le ${DateFormat('dd MMM yyyy à HH:mm').format((postulationData['createdAt'] as Timestamp).toDate())}',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.grey,
-                      ),
-                      child: const Text('FERMER'),
+                  const SizedBox(height: 20),
+                  _buildDetailItem(Icons.account_circle_outlined, 'Nom', studentData['nom']?.toString() ?? postulationData['nom']?.toString() ?? 'Non renseigné'),
+                  _buildDetailItem(Icons.account_circle_outlined, 'Prenom', studentData['prenom']?.toString() ?? postulationData['prenom']?.toString() ?? 'Non renseigné'),
+                  _buildDetailItem(Icons.email, 'Email', studentData['email']?.toString() ?? postulationData['email']?.toString() ?? 'Non renseigné'),
+                  _buildDetailItem(Icons.phone, 'Téléphone', studentData['numTel']?.toString() ?? 'Non renseigné'),
+                
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(statut).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    if (postulationData['statut']?.toString() != 'accepté')
-                      const SizedBox(width: 8),
-                    if (postulationData['statut']?.toString() != 'accepté')
-                      ElevatedButton(
-                        onPressed: () => _updateStatut(context, postulationId, 'accepté'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _getStatusIcon(statut),
+                          color: _getStatusColor(statut),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Statut: ${_getStatusText(statut)}',
+                          style: TextStyle(
+                            color: _getStatusColor(statut),
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        child: const Text('ACCEPTER'),
-                      ),
-                    if (postulationData['statut']?.toString() != 'refusé')
-                      const SizedBox(width: 8),
-                    if (postulationData['statut']?.toString() != 'refusé')
-                      ElevatedButton(
-                        onPressed: () => _updateStatut(context, postulationId, 'refusé'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.grey,
                         ),
-                        child: const Text('REFUSER'),
+                        child: const Text('FERMER'),
                       ),
-                  ],
-                ),
-              ],
+                      if (statut != 'accepté' && statut != 'annulée')
+                        ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _updateStatut(postulationId, 'accepté');
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text('ACCEPTER'),
+                        ),
+                      if (statut != 'refusé' && statut != 'annulée')
+                        ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _updateStatut(postulationId, 'refusé');
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text('REFUSER'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
       },
     );
-  }
-
-  Widget _buildDetailItem(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: const Color(0xFF226D68)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  IconData _getStatusIcon(String? statut) {
-    switch (statut?.toLowerCase()) {
-      case 'accepté':
-        return Icons.check_circle;
-      case 'refusé':
-        return Icons.cancel;
-      default:
-        return Icons.access_time;
-    }
-  }
-
-  String _getStatusText(String? statut) {
-    switch (statut?.toLowerCase()) {
-      case 'accepté':
-        return 'Accepté';
-      case 'refusé':
-        return 'Refusé';
-      default:
-        return 'En attente';
-    }
-  }
-
-  Future<void> _updateStatut(BuildContext context, String postulationId, String newStatut) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('postulations')
-          .doc(postulationId)
-          .update({
-            'statut': newStatut,
-            'traiteLe': Timestamp.now(),
-          });
-
-      if (!context.mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Statut mis à jour: $newStatut')),
-      );
-      
-      _loadInitialData();
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: ${e.toString()}')),
-      );
-    }
-  }
-
-  Color _getStatusColor(String? statut) {
-    switch (statut?.toLowerCase()) {
-      case 'accepté':
-        return Colors.green;
-      case 'refusé':
-        return Colors.red;
-      default:
-        return Colors.orange;
-    }
   }
 
   @override
@@ -530,99 +597,39 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
       appBar: AppBar(
         title: Text(
           "Candidats - ${widget.titreAction}",
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF226D68),
-        elevation: 0,
-        centerTitle: true,
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF226D68)),
-              ),
-            )
-          : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 64, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMessage!,
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadInitialData,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF226D68),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text('Réessayer'),
-                      ),
-                    ],
-                  ),
-                )
-              : _loadedPostulations.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.people_outline, size: 64, color: Colors.grey),
-                          const SizedBox(height: 16),
-                          const Text(
-                            "Aucun candidat pour cette action",
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.w500,
+      body: Column(
+        children: [
+          _buildFilterChips(),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage != null
+                    ? Center(child: Text(_errorMessage!))
+                    : _loadedPostulations.isEmpty
+                        ? const Center(child: Text("Aucun candidat"))
+                        : RefreshIndicator(
+                            onRefresh: _refreshData,
+                            child: ListView.builder(
+                              controller: _scrollController,
+                              itemCount: _loadedPostulations.length + (_isLoadingMore ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                if (index >= _loadedPostulations.length) {
+                                  return const Padding(
+                                    padding: EdgeInsets.all(16),
+                                    child: Center(child: CircularProgressIndicator()),
+                                  );
+                                }
+                                return _buildCandidatCard(_loadedPostulations[index]);
+                              },
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          TextButton(
-                            onPressed: _loadInitialData,
-                            child: const Text(
-                              'Actualiser',
-                              style: TextStyle(color: Color(0xFF226D68)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadInitialData,
-                      color: const Color(0xFF226D68),
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.only(top: 16, bottom: 24),
-                        itemCount: _loadedPostulations.length + (_isLoadingMore ? 1 : 0),
-                        itemBuilder: (context, index) {
-                          if (index >= _loadedPostulations.length) {
-                            return const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: Center(
-                                child: CircularProgressIndicator(
-                                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF226D68)),
-                                ),
-                              ),
-                            );
-                          }
-                          return _buildCandidatCard(_loadedPostulations[index]);
-                        },
-                      ),
-                    ),
+          ),
+        ],
+      ),
     );
   }
 }

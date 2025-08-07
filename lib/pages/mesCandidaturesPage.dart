@@ -3,9 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
-class MesCandidaturesPage extends StatelessWidget {
+class MesCandidaturesPage extends StatefulWidget {
   const MesCandidaturesPage({super.key});
 
+  @override
+  State<MesCandidaturesPage> createState() => _MesCandidaturesPageState();
+}
+
+class _MesCandidaturesPageState extends State<MesCandidaturesPage> {
   Future<String> _getActionTitle(String actionId) async {
     final doc = await FirebaseFirestore.instance
         .collection('actions_volontariat')
@@ -22,6 +27,8 @@ class MesCandidaturesPage extends StatelessWidget {
         return 'Refusée ❌';
       case 'en_attente':
         return 'En attente ⌛';
+      case 'annulée':
+        return 'Annulée 🚫';
       default:
         return status;
     }
@@ -35,8 +42,39 @@ class MesCandidaturesPage extends StatelessWidget {
         return Colors.red;
       case 'en_attente':
         return Colors.orange;
+      case 'annulée':
+        return Colors.grey;
       default:
         return Colors.grey;
+    }
+  }
+
+  Future<void> _annulerCandidature(String candidatureId) async {
+    try {
+      // Suppression complète de la candidature
+      await FirebaseFirestore.instance
+          .collection('postulations')
+          .doc(candidatureId)
+          .delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Candidature annulée avec succès'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // Rafraîchir l'interface
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -74,6 +112,7 @@ class MesCandidaturesPage extends StatelessWidget {
             itemBuilder: (context, index) {
               final candidature = candidatures[index];
               final statut = candidature['statut'];
+              final canCancel = statut == 'en_attente';
 
               return FutureBuilder<String>(
                 future: _getActionTitle(candidature['idAction']),
@@ -84,19 +123,60 @@ class MesCandidaturesPage extends StatelessWidget {
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
-                    child: ListTile(
-                      title: Text(snapshot.data!),
-                      subtitle: Text(
-                        'Postulé le ${DateFormat('dd/MM/yyyy').format(
-                          (candidature['createdAt'] as Timestamp).toDate()
-                        )}',
-                      ),
-                      trailing: Chip(
-                        label: Text(
-                          _getStatusText(statut),
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        backgroundColor: _getStatusColor(statut),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ListTile(
+                            title: Text(snapshot.data!),
+                            subtitle: Text(
+                              'Postulé le ${DateFormat('dd/MM/yyyy').format(
+                                (candidature['createdAt'] as Timestamp).toDate()
+                              )}',
+                            ),
+                            trailing: Chip(
+                              label: Text(
+                                _getStatusText(statut),
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              backgroundColor: _getStatusColor(statut),
+                            ),
+                          ),
+                          if (canCancel)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: const Text('Annuler la candidature'),
+                                      content: const Text(
+                                          'Êtes-vous sûr de vouloir annuler cette candidature ?'),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context),
+                                          child: const Text('Non'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                            _annulerCandidature(candidature.id);
+                                          },
+                                          child: const Text('Oui'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                                child: const Text(
+                                  'Annuler',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   );

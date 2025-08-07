@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -27,7 +26,7 @@ class MainApp extends StatefulWidget {
 
 class _MainAppState extends State<MainApp> {
   late final User? user;
-  late StreamSubscription<QuerySnapshot>? postulationSubscription;
+  late StreamSubscription<QuerySnapshot>? _notificationsSubscription;
   final Map<String, String> _previousStatus = {};
 
   @override
@@ -35,42 +34,41 @@ class _MainAppState extends State<MainApp> {
     super.initState();
     user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      // Écoute les changements sur les postulations de cet utilisateur
-      postulationSubscription = FirebaseFirestore.instance
-          .collection('postulations')
-          .where('idEtudiant', isEqualTo: user!.uid)
-          .snapshots()
-          .listen(_handlePostulationChanges);
+      _setupNotificationsListener();
     }
   }
 
-  void _handlePostulationChanges(QuerySnapshot snapshot) {
-    for (var change in snapshot.docChanges) {
-      final doc = change.doc;
-      final statut = (doc.data() as Map<String, dynamic>)['statut']?.toString().toLowerCase() ?? '';
-      final id = doc.id;
+  void _setupNotificationsListener() async {
+    // Vérifier si l'utilisateur est un étudiant
+    final studentDoc = await FirebaseFirestore.instance
+        .collection('etudiants')
+        .doc(user!.uid)
+        .get();
 
-      // Vérifie si le statut a changé
-      final oldStatut = _previousStatus[id];
-      if (oldStatut != statut && (statut == 'accepté' || statut == 'acceptée' || statut == 'refusé' || statut == 'refusée')) {
-        _previousStatus[id] = statut;
-
-        // Cherche le titre de l'action
-        FirebaseFirestore.instance.collection('actions_volontariat').doc(doc['idAction']).get().then((actionDoc) {
-          final titre = actionDoc.exists ? (actionDoc.data()?['titre'] ?? 'Action inconnue') : 'Action inconnue';
-
-          final titreNotif = "🎯 Mise à jour de votre candidature";
-          final bodyNotif = 'Votre postulation pour "$titre" a été ${statut == 'accepté' || statut == 'acceptée' ? 'acceptée' : 'refusée'}.';
-
-          NotificationService.showLocalNotification(titreNotif, bodyNotif);
-        });
-      }
+    if (studentDoc.exists) {
+      // Écouter les notifications pour cet étudiant
+      _notificationsSubscription = FirebaseFirestore.instance
+          .collection('notifications')
+          .where('userId', isEqualTo: user!.uid)
+          .orderBy('timestamp', descending: true)
+          .snapshots()
+          .listen((snapshot) {
+            for (var change in snapshot.docChanges) {
+              if (change.type == DocumentChangeType.added) {
+                final notification = change.doc.data() as Map<String, dynamic>;
+                NotificationService.showLocalNotification(
+                  title: notification['title'],
+                  body: notification['body'],
+                );
+              }
+            }
+          });
     }
   }
 
   @override
   void dispose() {
-    postulationSubscription?.cancel();
+    _notificationsSubscription?.cancel();
     super.dispose();
   }
 

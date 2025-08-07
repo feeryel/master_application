@@ -135,56 +135,61 @@ class _WelcomePageState extends State<WelcomePage> with SingleTickerProviderStat
                   const Spacer(flex: 2),
 
                   // Logo with parallax effect
-                  AnimatedBuilder(
-                    animation: _controller,
-                    builder: (context, child) {
-                      return Transform.translate(
-                        offset: Offset(0, 20 * (1 - _controller.value)),
-                        child: Hero(
-                          tag: 'app-logo',
-                          child: Image.asset(
-                            'assets/images/ecominds_logo22.png',
-                            height: 160,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+              Center(
+  child: AnimatedBuilder(
+    animation: _controller,
+    builder: (context, child) {
+      return Transform.translate(
+        offset: Offset(0, 20 * (1 - _controller.value)),
+        child: Hero(
+          tag: 'app-logo',
+          child: Image.asset(
+            'assets/images/ecominds_logo22.png',
+            height: 160,
+            fit: BoxFit.contain,
+          ),
+        ),
+      );
+    },
+  ),
+),
 
                   const Spacer(),
 
                   // Text content with slide animation
-                  SlideTransition(
-                    position: _slideAnimation,
-                    child: FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Rejoins une action, laisse\nton empreinte positive",
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.grey[900],
-                              height: 1.3,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            "Le volontariat ne change pas seulement le monde, il change aussi ceux qui s’engagent.",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey[600],
-                              height: 1.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+          // Remplacez la partie concernant le texte par ceci :
+SlideTransition(
+  position: _slideAnimation,
+  child: FadeTransition(
+    opacity: _fadeAnimation,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.center, // Modifié de start à center
+      children: [
+        Text(
+          "Rejoins une action, laisse\nton empreinte positive",
+          textAlign: TextAlign.center, // Ajouté pour centrer le texte
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey[900],
+            height: 1.3,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          "Le volontariat ne change pas seulement le monde, il change aussi ceux qui s'engagent.",
+          textAlign: TextAlign.center, // Ajouté pour centrer le texte
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey[600],
+            height: 1.5,
+          ),
+        ),
+      ],
+    ),
+  ),
+),
 
                   const Spacer(flex: 2),
 
