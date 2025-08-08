@@ -17,6 +17,8 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
   final TextEditingController _lieu = TextEditingController();
   final TextEditingController _dateDebut = TextEditingController();
   final TextEditingController _dateFin = TextEditingController();
+  final TextEditingController _points = TextEditingController(); // 🔹 Champ pour les points
+
   final User? _currentUser = FirebaseAuth.instance.currentUser;
   bool _showForm = false;
   bool _isEditing = false;
@@ -43,8 +45,17 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
 
   Future<void> _saveAction() async {
     try {
-      if (_titre.text.isEmpty || _dateDebut.text.isEmpty || _dateFin.text.isEmpty) {
-        _showErrorAlert('Veuillez remplir les champs obligatoires');
+      if (_titre.text.isEmpty ||
+          _dateDebut.text.isEmpty ||
+          _dateFin.text.isEmpty ||
+          _points.text.isEmpty) {
+        _showErrorAlert('Veuillez remplir les champs obligatoires (Titre, Dates, Points)');
+        return;
+      }
+
+      final int points = int.tryParse(_points.text) ?? 10;
+      if (points <= 0) {
+        _showErrorAlert('Le nombre de points doit être positif');
         return;
       }
 
@@ -53,12 +64,13 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
             .collection("actions_volontariat")
             .doc(_editingActionId)
             .update({
-              'titre': _titre.text,
-              'description': _description.text,
-              'lieu': _lieu.text,
-              'dateDebut': _dateDebut.text,
-              'dateFin': _dateFin.text,
-            });
+          'titre': _titre.text,
+          'description': _description.text,
+          'lieu': _lieu.text,
+          'dateDebut': _dateDebut.text,
+          'dateFin': _dateFin.text,
+          'points': points, // 🔹 Mise à jour des points
+        });
         _showSuccessAlert('Action modifiée avec succès');
       } else {
         await FirebaseFirestore.instance.collection("actions_volontariat").add({
@@ -71,11 +83,10 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
           'createdAt': Timestamp.now(),
           'idEtablissement': _currentUser?.uid,
           'emailEtablissement': _currentUser?.email,
-          'points': 10,
+          'points': points, // 🔹 Ajout des points
         });
         _showSuccessAlert('Action créée avec succès');
       }
-
       _resetForm();
     } catch (e) {
       _showErrorAlert("Erreur: ${e.toString()}");
@@ -129,6 +140,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       _lieu.clear();
       _dateDebut.clear();
       _dateFin.clear();
+      _points.clear(); // 🔹 Réinitialisation du champ points
       _showForm = false;
       _isEditing = false;
       _editingActionId = null;
@@ -143,6 +155,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       _lieu.text = data['lieu']?.toString() ?? '';
       _dateDebut.text = data['dateDebut']?.toString() ?? '';
       _dateFin.text = data['dateFin']?.toString() ?? '';
+      _points.text = (data['points'] ?? 10).toString(); // 🔹 Pré-remplir les points
       _isEditing = true;
       _editingActionId = action.id;
       _showForm = true;
@@ -154,13 +167,13 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
-        title: const Text('Confirmer la suppression', 
+        title: const Text('Confirmer la suppression',
             style: TextStyle(fontWeight: FontWeight.bold)),
         content: const Text('Voulez-vous vraiment supprimer cette action ?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler', 
+            child: const Text('Annuler',
                 style: TextStyle(color: Color(0xFF226D68))),
           ),
           ElevatedButton(
@@ -168,7 +181,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
               backgroundColor: Colors.red,
             ),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer', 
+            child: const Text('Supprimer',
                 style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -177,10 +190,12 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
         ),
       ),
     ) ?? false;
-
     if (confirm) {
       try {
-        await FirebaseFirestore.instance.collection("actions_volontariat").doc(id).delete();
+        await FirebaseFirestore.instance
+            .collection("actions_volontariat")
+            .doc(id)
+            .delete();
         if (!mounted) return;
         _showSuccessAlert('Action supprimée');
       } catch (e) {
@@ -207,7 +222,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(
-          Icons.add_circle_outlined, 
+          Icons.add_circle_outlined,
           size: 24,
           color: Colors.white,
         ),
@@ -313,6 +328,16 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                     ),
                     onTap: () => _selectDate(_dateFin),
                   ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _points,
+                    decoration: const InputDecoration(
+                      labelText: "Points à attribuer*",
+                      hintText: "Ex: 15",
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
                   const SizedBox(height: 20),
                   Row(
                     children: [
@@ -367,7 +392,6 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return Center(
             child: Column(
@@ -403,7 +427,6 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
             ),
           );
         }
-
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: snapshot.data!.docs.length,
@@ -486,7 +509,8 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                 ],
               ),
               const SizedBox(height: 12),
-              if (data['description'] != null && data['description'].toString().isNotEmpty)
+              if (data['description'] != null &&
+                  data['description'].toString().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
@@ -512,6 +536,18 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                   Text(
                     "${data['dateDebut']?.toString() ?? '?'} - ${data['dateFin']?.toString() ?? '?'}",
                     style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              // 🔹 Affichage des points
+              Row(
+                children: [
+                  Icon(Icons.star, size: 16, color: Colors.amber),
+                  const SizedBox(width: 4),
+                  Text(
+                    "${data['points'] ?? 10} points",
+                    style: TextStyle(color: Colors.amber),
                   ),
                 ],
               ),

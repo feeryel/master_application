@@ -24,9 +24,8 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
   final TextEditingController _nomController = TextEditingController();
   final TextEditingController _prenomController = TextEditingController();
   final TextEditingController _telController = TextEditingController();
-  int _selectedIndex = 0; // Pour la navigation entre onglets
+  int _selectedIndex = 0;
 
-  // Liste des pages disponibles
   final List<Widget> _pages = [];
   final PageController _pageController = PageController();
 
@@ -53,7 +52,6 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Charger les données de l'étudiant
     final studentDoc = await FirebaseFirestore.instance
         .collection('etudiants')
         .doc(user.uid)
@@ -63,7 +61,6 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
       setState(() => _etudiantData = studentDoc.data());
     }
 
-    // Charger les actions
     final actionsQuery = FirebaseFirestore.instance
         .collection("actions_volontariat")
         .orderBy("createdAt", descending: true)
@@ -109,94 +106,145 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
     }
   }
 
- void _setupNotifications() {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null) return;
+  void _setupNotifications() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
 
-  _candidatureSub = FirebaseFirestore.instance
-      .collection('postulations')
-      .where('idEtudiant', isEqualTo: uid)
-      .snapshots()
-      .listen((snapshot) async {
-    for (var change in snapshot.docChanges) {
-      if (change.type == DocumentChangeType.modified) {
-        final data = change.doc.data() as Map<String, dynamic>? ?? {};
-        if (data.isEmpty) continue;
+    _candidatureSub = FirebaseFirestore.instance
+        .collection('postulations')
+        .where('idEtudiant', isEqualTo: uid)
+        .snapshots()
+        .listen((snapshot) async {
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.modified) {
+          final data = change.doc.data() as Map<String, dynamic>? ?? {};
+          if (data.isEmpty) continue;
 
-        final newStatut = data['statut']?.toString() ?? '';
-        if (newStatut == 'accepté') {
-          await FirebaseFirestore.instance
-              .collection('etudiants')
-              .doc(uid)
-              .update({'points': FieldValue.increment(10)});
-
-          NotificationService.showLocalNotification(
-            title: 'Candidature acceptée',
-            body: '🎉 Félicitations! Vous avez gagné 10 points!',
-          );
-        } else if (newStatut == 'refusé') {
-          NotificationService.showLocalNotification(
-            title: 'Candidature refusée',
-            body: '❌ Votre candidature a été refusée.',
-          );
+          final newStatut = data['statut']?.toString() ?? '';
+          if (newStatut == 'accepté') {
+            // Ajouter les points seulement si la candidature est acceptée
+            await _addPointsToStudent(change.doc.id, data['idAction']);
+            
+            NotificationService.showLocalNotification(
+              title: 'Candidature acceptée',
+              body: 'Votre candidature a été acceptée !',
+            );
+          } else if (newStatut == 'refusé') {
+            NotificationService.showLocalNotification(
+              title: 'Candidature refusée',
+              body: '❌ Votre candidature a été refusée.',
+            );
+          }
         }
       }
-    }
-  });
-}
- // ... (le reste du code reste inchangé)
+    });
+  }
 
-Future<void> postuler(String idAction) async {
+Future<void> _addPointsToStudent(String postulationId, String actionId) async {
   try {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception("Veuillez vous connecter");
+    if (user == null) return;
 
-    // Vérifier seulement les candidatures non annulées
-    final existing = await FirebaseFirestore.instance
+    // Vérifier d'abord si la participation est confirmée
+    final postulationDoc = await FirebaseFirestore.instance
         .collection('postulations')
-        .where('idAction', isEqualTo: idAction)
-        .where('idEtudiant', isEqualTo: user.uid)
-        .where('statut', whereNotIn: ['annulée'])
-        .limit(1)
+        .doc(postulationId)
         .get();
 
-    if (existing.docs.isNotEmpty) {
-      throw Exception("Vous avez déjà postulé à cette action");
+    if (postulationDoc.data()?['participationConfirmee'] != true) {
+      debugPrint('Participation non confirmée - points non attribués');
+      return;
     }
 
-    // Créer la postulation
-    await FirebaseFirestore.instance.collection('postulations').add({
-      'idAction': idAction,
-      'idEtudiant': user.uid,
-      'email': user.email,
-      'nomComplet': '${_etudiantData?['prenom']} ${_etudiantData?['nom']}',
-      'createdAt': Timestamp.now(),
-      'statut': 'en_attente',
-      'idEtablissement': (await FirebaseFirestore.instance
-          .collection('actions_volontariat')
-          .doc(idAction)
-          .get())
-          .data()?['idEtablissement'],
-    });
+    // Vérifier si les points ont déjà été attribués
+    if (postulationDoc.data()?['pointsAttributed'] == true) {
+      debugPrint('Points déjà attribués pour cette postulation');
+      return;
+    }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Postulation envoyée avec succès !"),
-        backgroundColor: Colors.green,
-      ),
-    );
+    // Récupérer les points de l'action
+    final actionDoc = await FirebaseFirestore.instance
+        .collection('actions_volontariat')
+        .doc(actionId)
+        .get();
+    
+    final points = actionDoc.data()?['points'] ?? 10;
+
+    // Mettre à jour les points de l'étudiant
+    await FirebaseFirestore.instance
+        .collection('etudiants')
+        .doc(user.uid)
+        .update({
+          'points': FieldValue.increment(points),
+        });
+
+    // Marquer que les points ont été attribués
+    await FirebaseFirestore.instance
+        .collection('postulations')
+        .doc(postulationId)
+        .update({
+          'pointsAttributed': true,
+        });
+
+    // Recharger les données de l'étudiant
+    final updatedDoc = await FirebaseFirestore.instance
+        .collection('etudiants')
+        .doc(user.uid)
+        .get();
+        
+    setState(() => _etudiantData = updatedDoc.data());
   } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Erreur: ${e.toString()}"),
-        backgroundColor: Colors.red,
-      ),
-    );
+    debugPrint('Erreur lors de l\'ajout des points: $e');
   }
 }
+  Future<void> postuler(String idAction) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception("Veuillez vous connecter");
 
+      final existing = await FirebaseFirestore.instance
+          .collection('postulations')
+          .where('idAction', isEqualTo: idAction)
+          .where('idEtudiant', isEqualTo: user.uid)
+          .where('statut', whereNotIn: ['annulée'])
+          .limit(1)
+          .get();
+
+      if (existing.docs.isNotEmpty) {
+        throw Exception("Vous avez déjà postulé à cette action");
+      }
+
+      await FirebaseFirestore.instance.collection('postulations').add({
+        'idAction': idAction,
+        'idEtudiant': user.uid,
+        'email': user.email,
+        'nomComplet': '${_etudiantData?['prenom']} ${_etudiantData?['nom']}',
+        'createdAt': Timestamp.now(),
+        'statut': 'en_attente',
+        'idEtablissement': (await FirebaseFirestore.instance
+            .collection('actions_volontariat')
+            .doc(idAction)
+            .get())
+            .data()?['idEtablissement'],
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Postulation envoyée avec succès !"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur: ${e.toString()}"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 // ... (le reste du code reste inchangé)
   Widget _buildDrawer() {
     final user = FirebaseAuth.instance.currentUser;
@@ -299,7 +347,7 @@ Future<void> postuler(String idAction) async {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Bonjour, $prenom!',
+            'Bonjour, $prenom',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -375,23 +423,41 @@ Future<void> postuler(String idAction) async {
             children: [
               _buildAppCard(
                 icon: Icons.school,
-                title: 'Cours en ligne',
+                title: 'Certifications',
                 color: Colors.blue,
+                   onTap: () {
+        // Ajoutez ici la navigation vers la page des certifications si elle existe
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fonctionnalité à venir')),
+        );}
               ),
               _buildAppCard(
                 icon: Icons.volunteer_activism,
                 title: 'Bénévolat',
                 color: Colors.green,
+                   onTap: () {
+        setState(() => _selectedIndex = 3); // Index de la page Actions
+        _pageController.jumpToPage(3);
+      },
               ),
               _buildAppCard(
                 icon: Icons.event,
-                title: 'Événements',
+                title: 'Historique de participation',
                 color: Colors.orange,
+                   onTap: () {
+        // Ajoutez ici la navigation vers la page des certifications si elle existe
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fonctionnalité à venir')),
+        );}
               ),
               _buildAppCard(
-                icon: Icons.work,
-                title: 'Stages',
-                color: Colors.purple,
+                icon: Icons.post_add_rounded,
+                title: 'Mes Candidatures',
+                color: Colors.purple, 
+                  onTap: () {
+        setState(() => _selectedIndex = 1); // Index de MesCandidaturesPage
+        _pageController.jumpToPage(1);
+      },
               ),
             ],
           ),
@@ -400,7 +466,7 @@ Future<void> postuler(String idAction) async {
     );
   }
 
-  Widget _buildAppCard({required IconData icon, required String title, required Color color}) {
+  Widget _buildAppCard({required IconData icon, required String title, required Color color  ,required VoidCallback onTap, }) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
@@ -408,7 +474,7 @@ Future<void> postuler(String idAction) async {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
-        onTap: () {},
+      onTap: onTap, // Utilisation du callback
         child: Padding(
           padding: EdgeInsets.all(15),
           child: Column(
@@ -495,7 +561,7 @@ Future<void> postuler(String idAction) async {
           SizedBox(height: 30),
           
           Text(
-            'Comment gagner plus de points?',
+            'Comment maximiser votre impact?',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -504,30 +570,37 @@ Future<void> postuler(String idAction) async {
           ),
           SizedBox(height: 15),
           
-          _buildPointInfo(
-            icon: Icons.volunteer_activism,
-            title: 'Postuler à une action',
-            points: '+10 points',
-            color: Colors.green,
-          ),
-          _buildPointInfo(
-            icon: Icons.check_circle,
-            title: 'Candidature acceptée',
-            points: '+10 points',
-            color: Colors.green,
-          ),
-          _buildPointInfo(
-            icon: Icons.event_available,
-            title: 'Participation confirmée',
-            points: '+20 points',
-            color: Colors.green,
-          ),
-          _buildPointInfo(
-            icon: Icons.leaderboard,
-            title: 'Classement hebdomadaire',
-            points: 'Jusqu\'à +50 points',
-            color: Colors.orange,
-          ),
+     _buildPointInfo(
+  icon: Icons.volunteer_activism,
+  title: 'Postuler à une action',
+  points: 'Premier pas',  // Remplace +5 points
+  color: Colors.green,
+),
+_buildPointInfo(
+  icon: Icons.check_circle,
+  title: 'Candidature acceptée',
+  points: 'Reconnaissance ',  // Remplace +15 points
+  color: Colors.lightGreen,
+),
+_buildPointInfo(
+  icon: Icons.event_available,
+  title: 'Participation effective',
+  points: 'Impact concret ',  // Remplace +30 points
+  color: Colors.green,
+),
+_buildPointInfo(
+  icon: Icons.star,
+  title: 'Évaluation positive',
+  points: 'Exemplarité reconnue',  // Remplace +10 points
+  color: Colors.blueAccent,
+),
+_buildPointInfo(
+  icon: Icons.leaderboard,
+  title: 'Affectation des labels ',
+  points: 'Progression',  // Remplace Jusqu'à +100 points
+  color: Colors.orange,
+),
+
         ],
       ),
     );
@@ -945,7 +1018,7 @@ Future<void> postuler(String idAction) async {
     }
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -954,6 +1027,14 @@ Future<void> postuler(String idAction) async {
         backgroundColor: const Color(0xFF226D68),
         iconTheme: IconThemeData(color: Colors.white),
         elevation: 0,
+         actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+          onPressed: _loadInitialData,
+          tooltip: 'Actualiser',
+        ),
+      ],
+    
       ),
       drawer: _buildDrawer(),
       body: PageView(

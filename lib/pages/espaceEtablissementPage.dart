@@ -730,11 +730,7 @@ Widget _buildDrawer() {
             onPressed: _loadInitialData,
             tooltip: 'Actualiser',
           ),
-          IconButton(
-            icon: const Icon(Icons.notifications_none_rounded, color: Colors.white),
-            onPressed: () {},
-            tooltip: 'Notifications',
-          ),
+         
         ],
       ),
       drawer: _buildDrawer(),
@@ -799,8 +795,8 @@ Widget _buildDrawer() {
                     ),
                     _buildDashboardButton(
                       icon: Icons.people_alt_rounded,
-                      title: "Postulations",
-                      subtitle: "Voir et gérer les candidatures",
+                      title: "Participations",
+                      subtitle: "Voir et gérer les participations",
                       destination: const GestionPostulationsPage(),
                       color: secondaryColor,
                     ),

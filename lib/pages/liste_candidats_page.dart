@@ -80,7 +80,7 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     );
   }
 
-  @override
+ @override
   void initState() {
     super.initState();
     _scrollController.addListener(_scrollListener);
@@ -220,42 +220,88 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     }
   }
 
-  Future<void> _updateStatut(String postulationId, String newStatut) async {
+Future<void> _updateStatut(String postulationId, String newStatut, String studentId) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('postulations')
+        .doc(postulationId)
+        .update({
+          'statut': newStatut,
+          'traiteLe': Timestamp.now(),
+        });
+
+    if (newStatut == 'accepté') {
+      await FirebaseFirestore.instance
+          .collection('postulations')
+          .doc(postulationId)
+          .update({
+            'pointsAttributed': false,
+          });
+    }
+
+    // Now we have studentId passed in, so no error
+    await _sendStudentNotification(
+      studentId: studentId,
+      actionId: widget.idAction,
+      newStatus: newStatut,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Statut mis à jour')),
+      );
+      await _refreshData();
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: ${e.toString()}')),
+      );
+    }
+  }
+}
+
+
+
+Future<void> _addPointsToStudent(String studentId, String postulationId) async {
     try {
+      // Vérifier si les points ont déjà été attribués
       final postulationDoc = await FirebaseFirestore.instance
           .collection('postulations')
           .doc(postulationId)
           .get();
       
-      final postulationData = postulationDoc.data()!;
-      final studentId = postulationData['idEtudiant'];
+       if (postulationDoc.data()?['statut'] != 'accepté' || 
+          postulationDoc.data()?['participationConfirmee'] != true ||
+          postulationDoc.data()?['pointsAttributed'] == true) {
+        return;// Les points ont déjà été attribués
+      }
 
+      // Récupérer les points de l'action
+      final actionDoc = await FirebaseFirestore.instance
+          .collection('actions_volontariat')
+          .doc(widget.idAction)
+          .get();
+      
+      final points = actionDoc.data()?['points'] ?? 10;
+
+      // Mettre à jour les points de l'étudiant
+      await FirebaseFirestore.instance
+          .collection('etudiants')
+          .doc(studentId)
+          .update({
+            'points': FieldValue.increment(points),
+          });
+
+      // Marquer que les points ont été attribués
       await FirebaseFirestore.instance
           .collection('postulations')
           .doc(postulationId)
           .update({
-            'statut': newStatut,
-            'traiteLe': Timestamp.now(),
+            'pointsAttributed': true,
           });
-
-      await _sendStudentNotification(
-        studentId: studentId,
-        actionId: widget.idAction,
-        newStatus: newStatut,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Statut mis à jour')),
-        );
-        await _refreshData();
-      }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: ${e.toString()}')),
-        );
-      }
+      debugPrint('Erreur lors de l\'ajout des points: $e');
     }
   }
 
@@ -552,10 +598,10 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
                       ),
                       if (statut != 'accepté' && statut != 'annulée')
                         ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _updateStatut(postulationId, 'accepté');
-                          },
+                         onPressed: () {
+    Navigator.pop(context);
+    _updateStatut(postulationId, 'accepté', postulationData['idEtudiant']);
+  },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
@@ -567,10 +613,10 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
                         ),
                       if (statut != 'refusé' && statut != 'annulée')
                         ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _updateStatut(postulationId, 'refusé');
-                          },
+                        onPressed: () {
+    Navigator.pop(context);
+    _updateStatut(postulationId, 'refusé', postulationData['idEtudiant']);
+  },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.red,
                             foregroundColor: Colors.white,
