@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:master_application/pages/loginPage.dart';
 
 class EspaceEntreprisePage extends StatefulWidget {
   const EspaceEntreprisePage({super.key});
@@ -136,26 +137,48 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
     }
   }
 
-  Future<void> _logout() async {
-    try {
-      await _auth.signOut();
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-        (route) => false,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: ${e.toString()}"),
-          backgroundColor: warningColor,
-        ),
-      );
-    }
-  }
+Future<void> _logout() async {
+  if (!mounted) return;
+  
+  // Afficher l'indicateur de chargement
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => Center(
+      child: CircularProgressIndicator(color: primaryColor),
+    ),
+  );
 
+  try {
+    await _auth.signOut();
+    if (!mounted) return;
+    
+    // Fermer le dialogue de chargement
+    Navigator.of(context).pop(); 
+    
+    // Navigation avec animation
+    Navigator.pushAndRemoveUntil(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const LoginPage(),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+      (route) => false,
+    );
+  } catch (e) {
+    if (!mounted) return;
+    // Fermer le dialogue de chargement en cas d'erreur
+    Navigator.of(context).pop(); 
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Erreur: ${e.toString()}"),
+        backgroundColor: warningColor,
+      ),
+    );
+  }
+}
   Widget _buildDrawer() {
     return Drawer(
       width: MediaQuery.of(context).size.width * 0.7,
@@ -790,13 +813,4 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
   }
 }
 
-class LoginPage extends StatelessWidget {
-  const LoginPage({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(child: Text('Page de connexion')),
-    );
-  }
-}
