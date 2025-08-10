@@ -126,8 +126,8 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
             await _addPointsToStudent(change.doc.id, data['idAction']);
             
             NotificationService.showLocalNotification(
-              title: 'Candidature acceptée',
-              body: 'Votre candidature a été acceptée !',
+          title: 'Félicitations',
+          body: '🎉 Bravo ! Ta candidature a été acceptée 🎉',
             );
           } else if (newStatut == 'refusé') {
             NotificationService.showLocalNotification(
