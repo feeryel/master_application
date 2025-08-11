@@ -21,58 +21,65 @@ class _LoginPageState extends State<LoginPage> {
   bool isLoading = false;
   bool _obscurePassword = true;
 
-  Future<void> loginUser() async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> loginUser() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => isLoading = true);
-    try {
-      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-      );
+  setState(() => isLoading = true);
+  try {
+    final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      email: emailController.text.trim(),
+      password: passwordController.text.trim(),
+    );
 
-      final uid = credential.user!.uid;
+    final uid = credential.user!.uid;
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
 
-      if (!userDoc.exists) {
-        throw Exception("Utilisateur introuvable dans Firestore !");
-      }
-
-      final role = userDoc['role'];
-      await FcmTokenHelper.saveToken();
-
-      Widget nextPage;
-      switch (role) {
-        case 'etudiant':
-          nextPage = const EspaceEtudiantPage();
-          break;
-        case 'etablissement':
-          nextPage = const EspaceEtablissementPage();
-          break;
-        case 'entreprise':
-          nextPage = const EspaceEntreprisePage();
-          break;
-        default:
-          throw Exception("Rôle non reconnu : $role");
-      }
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => nextPage),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur : ${e.toString()}"),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    } finally {
-      setState(() => isLoading = false);
+    if (!userDoc.exists) {
+      throw Exception("Utilisateur introuvable dans Firestore !");
     }
-  }
 
+    // Vérifier le statut de l'utilisateur
+    final statut = userDoc['statut'];
+    if (statut == 'en attente') {
+      throw Exception("Votre compte n'est pas encore activé. Veuillez patienter.");
+    } else if (statut == 'refusé') {
+      throw Exception("Votre demande d'inscription a été refusée.");
+    }
+
+    final role = userDoc['role'];
+    await FcmTokenHelper.saveToken();
+
+    Widget nextPage;
+    switch (role) {
+      case 'etudiant':
+        nextPage = const EspaceEtudiantPage();
+        break;
+      case 'etablissement':
+        nextPage = const EspaceEtablissementPage();
+        break;
+      case 'entreprise':
+        nextPage = const EspaceEntreprisePage();
+        break;
+      default:
+        throw Exception("Rôle non reconnu : $role");
+    }
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => nextPage),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Erreur : ${e.toString()}"),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  } finally {
+    setState(() => isLoading = false);
+  }
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(

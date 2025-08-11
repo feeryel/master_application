@@ -17,23 +17,22 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
   final TextEditingController _lieu = TextEditingController();
   final TextEditingController _dateDebut = TextEditingController();
   final TextEditingController _dateFin = TextEditingController();
-  final TextEditingController _points = TextEditingController(); // 🔹 Champ pour les points
+  final TextEditingController _points = TextEditingController();
 
   final User? _currentUser = FirebaseAuth.instance.currentUser;
   bool _showForm = false;
   bool _isEditing = false;
   String? _editingActionId;
 
-  // Couleurs thématiques
   final Color primaryColor = const Color(0xFF226D68);
   final Color secondaryColor = const Color(0xFF3A7D44);
   final Color accentColor = const Color(0xFF5C8D89);
 
-  Future<void> _selectDate(TextEditingController controller) async {
+  Future<void> _selectDate(TextEditingController controller, {DateTime? firstDate}) async {
     DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
+      firstDate: firstDate ?? DateTime(2020),
       lastDate: DateTime(2100),
     );
     if (picked != null) {
@@ -43,16 +42,34 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
     }
   }
 
+  bool _validateDates() {
+    if (_dateDebut.text.isEmpty || _dateFin.text.isEmpty) return true;
+    
+    final dateFormat = DateFormat('yyyy-MM-dd');
+    final debut = dateFormat.parse(_dateDebut.text);
+    final fin = dateFormat.parse(_dateFin.text);
+    
+    return fin.isAfter(debut) || fin.isAtSameMomentAs(debut);
+  }
+
   Future<void> _saveAction() async {
     try {
+      // Validation des champs obligatoires
       if (_titre.text.isEmpty ||
           _dateDebut.text.isEmpty ||
           _dateFin.text.isEmpty ||
           _points.text.isEmpty) {
-        _showErrorAlert('Veuillez remplir les champs obligatoires (Titre, Dates, Points)');
+        _showErrorAlert('Veuillez remplir tous les champs obligatoires');
         return;
       }
 
+      // Validation des dates
+      if (!_validateDates()) {
+        _showErrorAlert('La date de fin doit être après ou égale à la date\n de début');
+        return;
+      }
+
+      // Validation des points
       final int points = int.tryParse(_points.text) ?? 10;
       if (points <= 0) {
         _showErrorAlert('Le nombre de points doit être positif');
@@ -60,6 +77,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       }
 
       if (_isEditing && _editingActionId != null) {
+        // Mise à jour de l'action existante
         await FirebaseFirestore.instance
             .collection("actions_volontariat")
             .doc(_editingActionId)
@@ -69,10 +87,11 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
           'lieu': _lieu.text,
           'dateDebut': _dateDebut.text,
           'dateFin': _dateFin.text,
-          'points': points, // 🔹 Mise à jour des points
+          'points': points,
         });
         _showSuccessAlert('Action modifiée avec succès');
       } else {
+        // Création d'une nouvelle action
         await FirebaseFirestore.instance.collection("actions_volontariat").add({
           'titre': _titre.text,
           'description': _description.text,
@@ -83,7 +102,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
           'createdAt': Timestamp.now(),
           'idEtablissement': _currentUser?.uid,
           'emailEtablissement': _currentUser?.email,
-          'points': points, // 🔹 Ajout des points
+          'points': points,
         });
         _showSuccessAlert('Action créée avec succès');
       }
@@ -140,7 +159,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       _lieu.clear();
       _dateDebut.clear();
       _dateFin.clear();
-      _points.clear(); // 🔹 Réinitialisation du champ points
+      _points.clear();
       _showForm = false;
       _isEditing = false;
       _editingActionId = null;
@@ -155,7 +174,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       _lieu.text = data['lieu']?.toString() ?? '';
       _dateDebut.text = data['dateDebut']?.toString() ?? '';
       _dateFin.text = data['dateFin']?.toString() ?? '';
-      _points.text = (data['points'] ?? 10).toString(); // 🔹 Pré-remplir les points
+      _points.text = (data['points'] ?? 10).toString();
       _isEditing = true;
       _editingActionId = action.id;
       _showForm = true;
@@ -326,7 +345,13 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                       labelText: "Date Fin*",
                       border: OutlineInputBorder(),
                     ),
-                    onTap: () => _selectDate(_dateFin),
+                    onTap: () {
+                      final dateFormat = DateFormat('yyyy-MM-dd');
+                      final firstDate = _dateDebut.text.isNotEmpty 
+                          ? dateFormat.parse(_dateDebut.text) 
+                          : null;
+                      _selectDate(_dateFin, firstDate: firstDate);
+                    },
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -407,22 +432,6 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _resetForm();
-                      _showForm = true;
-                    });
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  ),
-                  child: const Text('Créer une action'),
-                ),
               ],
             ),
           );
@@ -484,6 +493,8 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
                   ),
                   PopupMenuButton<String>(
@@ -540,7 +551,6 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                 ],
               ),
               const SizedBox(height: 4),
-              // 🔹 Affichage des points
               Row(
                 children: [
                   Icon(Icons.star, size: 16, color: Colors.amber),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:master_application/pages/notification_service.dart';
 
@@ -11,6 +12,10 @@ class GestionPostulationsPage extends StatefulWidget {
 }
 
 class _GestionPostulationsPageState extends State<GestionPostulationsPage> {
+  final User? _currentUser = FirebaseAuth.instance.currentUser;
+  final Color primaryColor = const Color(0xFF226D68);
+  final Color secondaryColor = const Color(0xFF439A97);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -18,20 +23,26 @@ class _GestionPostulationsPageState extends State<GestionPostulationsPage> {
         title: const Text("Liste des Actions"),
         backgroundColor: const Color(0xFF226D68),
       ),
-      body: _ActionsList(),
+      body: _currentUser == null 
+          ? Center(child: Text("Veuillez vous connecter"))
+          : _ActionsList(currentUserId: _currentUser!.uid),
     );
   }
 }
 
 class _ActionsList extends StatelessWidget {
+  final String currentUserId;
   final Color primaryColor = const Color(0xFF226D68);
   final Color secondaryColor = const Color(0xFF439A97);
+
+  const _ActionsList({required this.currentUserId});
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('actions_volontariat')
+          .where('idEtablissement', isEqualTo: currentUserId)
           .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
@@ -46,7 +57,12 @@ class _ActionsList extends StatelessWidget {
               children: [
                 Icon(Icons.event_note, size: 48, color: Colors.grey),
                 SizedBox(height: 16),
-                Text("Aucune action disponible"),
+                Text("Aucune action créée"),
+                SizedBox(height: 8),
+                Text(
+                  "Les actions que vous créez apparaîtront ici",
+                  style: TextStyle(color: Colors.grey),
+                ),
               ],
             ),
           );
@@ -111,6 +127,7 @@ class _ParticipationConfirmationPageState extends State<ParticipationConfirmatio
   final Color successColor = Colors.green;
   final Color warningColor = Colors.red;
   final Color primaryColor = const Color(0xFF226D68);
+  final User? _currentUser = FirebaseAuth.instance.currentUser;
 
   @override
   Widget build(BuildContext context) {
@@ -119,17 +136,26 @@ class _ParticipationConfirmationPageState extends State<ParticipationConfirmatio
         title: Text("Participants - ${widget.actionTitle}"),
         backgroundColor: primaryColor,
       ),
-      body: _ParticipantsList(actionId: widget.actionId),
+      body: _currentUser == null
+          ? Center(child: Text("Veuillez vous connecter"))
+          : _ParticipantsList(
+              actionId: widget.actionId,
+              currentUserId: _currentUser!.uid,
+            ),
     );
   }
 }
 
 class _ParticipantsList extends StatelessWidget {
   final String actionId;
+  final String currentUserId;
   final Color primaryColor = const Color(0xFF226D68);
   final Color secondaryColor = const Color(0xFF439A97);
 
-  const _ParticipantsList({required this.actionId});
+  const _ParticipantsList({
+    required this.actionId,
+    required this.currentUserId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -137,6 +163,7 @@ class _ParticipantsList extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('postulations')
           .where('idAction', isEqualTo: actionId)
+          .where('idEtablissement', isEqualTo: currentUserId)
           .where('statut', isEqualTo: 'accepté')
           .snapshots(),
       builder: (context, snapshot) {
@@ -152,6 +179,11 @@ class _ParticipantsList extends StatelessWidget {
                 Icon(Icons.people_outline, size: 48, color: Colors.grey),
                 SizedBox(height: 16),
                 Text("Aucun participant accepté pour cette action"),
+                SizedBox(height: 8),
+                Text(
+                  "Les candidats acceptés apparaîtront ici",
+                  style: TextStyle(color: Colors.grey),
+                ),
               ],
             ),
           );
@@ -189,70 +221,65 @@ class _ParticipantItem extends StatelessWidget {
     required this.data,
   });
 
-Future<void> _confirmerParticipation(BuildContext context) async {
-  try {
-    final postulationDoc = await FirebaseFirestore.instance
-        .collection('postulations')
-        .doc(postulationId)
-        .get();
+  Future<void> _confirmerParticipation(BuildContext context) async {
+    try {
+      final postulationDoc = await FirebaseFirestore.instance
+          .collection('postulations')
+          .doc(postulationId)
+          .get();
 
-    if (postulationDoc.data()?['statut'] != 'accepté') {
+      if (postulationDoc.data()?['statut'] != 'accepté') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('La candidature doit être acceptée avant confirmation')),
+        );
+        return;
+      }
+
+      if (postulationDoc.data()?['participationConfirmee'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Participation déjà confirmée')),
+        );
+        return;
+      }
+
+      final actionDoc = await FirebaseFirestore.instance
+          .collection('actions_volontariat')
+          .doc(actionId)
+          .get();
+      final points = actionDoc.data()?['points'] ?? 20;
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        transaction.update(
+          FirebaseFirestore.instance.collection('postulations').doc(postulationId),
+          {
+            'participationConfirmee': true,
+            'dateConfirmation': Timestamp.now(),
+            'pointsAttributed': true,
+          },
+        );
+
+        transaction.update(
+          FirebaseFirestore.instance.collection('etudiants').doc(data['idEtudiant']),
+          {'points': FieldValue.increment(points)},
+        );
+      });
+
+      await NotificationService.sendNotificationToStudent(
+        studentId: data['idEtudiant'],
+        title: 'Participation confirmée',
+        body: 'Vous avez reçu $points points pour votre participation !',
+      );
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('La candidature doit être acceptée avant confirmation')),
+        SnackBar(content: Text('$points points attribués avec succès')),
       );
-      return;
-    }
-
-    // Vérifier si déjà confirmé
-    if (postulationDoc.data()?['participationConfirmee'] == true) {
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Participation déjà confirmée')),
+        SnackBar(content: Text('Erreur: ${e.toString()}')),
       );
-      return;
     }
-
-    // Récupérer les points de l'action
-    final actionDoc = await FirebaseFirestore.instance
-        .collection('actions_volontariat')
-        .doc(actionId)
-        .get();
-    final points = actionDoc.data()?['points'] ?? 20;
-
-    // Faire la mise à jour en une seule transaction
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      // 1. Marquer comme confirmé
-      transaction.update(
-        FirebaseFirestore.instance.collection('postulations').doc(postulationId),
-        {
-          'participationConfirmee': true,
-          'dateConfirmation': Timestamp.now(),
-          'pointsAttributed': true, // Marquer que les points ont été attribués
-        },
-      );
-
-      // 2. Ajouter les points à l'étudiant
-      transaction.update(
-        FirebaseFirestore.instance.collection('etudiants').doc(data['idEtudiant']),
-        {'points': FieldValue.increment(points)},
-      );
-    });
-
-    // Notifier l'étudiant
-    await NotificationService.sendNotificationToStudent(
-      studentId: data['idEtudiant'],
-      title: 'Participation confirmée',
-      body: 'Vous avez reçu $points points pour votre participation !',
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$points points attribués avec succès')),
-    );
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Erreur: ${e.toString()}')),
-    );
   }
-}
+
   Future<void> _marquerAbsence(BuildContext context) async {
     try {
       await FirebaseFirestore.instance

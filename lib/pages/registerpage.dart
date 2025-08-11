@@ -62,6 +62,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'uid': uid,
         'email': emailController.text.trim(),
         'role': selectedRole,
+        'statut': 'en attente', // Ajout du statut
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -71,6 +72,8 @@ class _RegisterPageState extends State<RegisterPage> {
       batch.set(roleRef, {
         ...getDataByRole(),
         'uid': uid,
+              'statut': 'en attente', // Ajout du statut aussi dans la collection spécifique
+
       });
 
       await batch.commit();
@@ -79,7 +82,7 @@ class _RegisterPageState extends State<RegisterPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("✅ Inscription réussie !"),
+        content: Text("✅ Inscription réussie ! En attente de validation par l'admin"),
           backgroundColor: Colors.green,
         ),
       );
