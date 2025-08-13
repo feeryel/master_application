@@ -48,6 +48,83 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
     super.dispose();
   }
 
+  String _getStudentLabel(int points) {
+    if (points >= 1000) return 'Leader Communautaire';
+    if (points >= 500) return 'Étudiant Exemplaire';
+    if (points >= 250) return 'Étudiant Responsable';
+    if (points >= 100) return 'Étudiant Engagé';
+    return 'Nouveau';
+  }
+
+  Color _getLabelColor(int points) {
+    if (points >= 1000) return Color(0xFFdc2626);
+    if (points >= 500) return Color(0xFF7c3aed);
+    if (points >= 250) return Color(0xFF2563eb);
+    if (points >= 100) return Color(0xFF0ea5e9);
+    return Color(0xFF64748b);
+  }
+
+
+List<Map<String, dynamic>> _getEarnedLabels(int points) {
+  final List<Map<String, dynamic>> earnedLabels = [];
+  
+  if (points >= 1000) {
+    earnedLabels.add({
+      'name': 'Leader Communautaire',
+      'color': Color(0xFFdc2626),
+      'threshold': 1000
+    });
+  }
+  if (points >= 500) {
+    earnedLabels.add({
+      'name': 'Étudiant Exemplaire', 
+      'color': Color(0xFF7c3aed),
+      'threshold': 500
+    });
+  }
+  if (points >= 250) {
+    earnedLabels.add({
+      'name': 'Étudiant Responsable',
+      'color': Color(0xFF2563eb),
+      'threshold': 250
+    });
+  }
+  if (points >= 100) {
+    earnedLabels.add({
+      'name': 'Étudiant Engagé',
+      'color': Color(0xFF0ea5e9),
+      'threshold': 100
+    });
+  }
+  if (points < 100) {
+    earnedLabels.add({
+      'name': 'Nouveau',
+      'color': Color(0xFF64748b),
+      'threshold': 0
+    });
+  }
+  
+  // Trier par ordre décroissant de points
+  earnedLabels.sort((a, b) => b['threshold'].compareTo(a['threshold']));
+  
+  return earnedLabels;
+}
+  Map<String, dynamic>? _getNextLevel(int points) {
+    if (points >= 1000) return null;
+    if (points >= 500) return {'name': 'Leader Communautaire', 'threshold': 1000, 'color': 0xFFdc2626};
+    if (points >= 250) return {'name': 'Étudiant Exemplaire', 'threshold': 500, 'color': 0xFF7c3aed};
+    if (points >= 100) return {'name': 'Étudiant Responsable', 'threshold': 250, 'color': 0xFF2563eb};
+    return {'name': 'Étudiant Engagé', 'threshold': 100, 'color': 0xFF0ea5e9};
+  }
+
+  int _getCurrentThreshold(int points) {
+    if (points >= 1000) return 1000;
+    if (points >= 500) return 500;
+    if (points >= 250) return 250;
+    if (points >= 100) return 100;
+    return 0;
+  }
+
   Future<void> _loadInitialData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -122,12 +199,11 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
 
           final newStatut = data['statut']?.toString() ?? '';
           if (newStatut == 'accepté') {
-            // Ajouter les points seulement si la candidature est acceptée
             await _addPointsToStudent(change.doc.id, data['idAction']);
             
             NotificationService.showLocalNotification(
-          title: 'Félicitations',
-          body: '🎉 Bravo ! Ta candidature a été acceptée 🎉',
+              title: 'Félicitations',
+              body: '🎉 Bravo ! Ta candidature a été acceptée 🎉',
             );
           } else if (newStatut == 'refusé') {
             NotificationService.showLocalNotification(
@@ -140,63 +216,58 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
     });
   }
 
-Future<void> _addPointsToStudent(String postulationId, String actionId) async {
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+  Future<void> _addPointsToStudent(String postulationId, String actionId) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
 
-    // Vérifier d'abord si la participation est confirmée
-    final postulationDoc = await FirebaseFirestore.instance
-        .collection('postulations')
-        .doc(postulationId)
-        .get();
+      final postulationDoc = await FirebaseFirestore.instance
+          .collection('postulations')
+          .doc(postulationId)
+          .get();
 
-    if (postulationDoc.data()?['participationConfirmee'] != true) {
-      debugPrint('Participation non confirmée - points non attribués');
-      return;
+      if (postulationDoc.data()?['participationConfirmee'] != true) {
+        debugPrint('Participation non confirmée - points non attribués');
+        return;
+      }
+
+      if (postulationDoc.data()?['pointsAttributed'] == true) {
+        debugPrint('Points déjà attribués pour cette postulation');
+        return;
+      }
+
+      final actionDoc = await FirebaseFirestore.instance
+          .collection('actions_volontariat')
+          .doc(actionId)
+          .get();
+      
+      final points = actionDoc.data()?['points'] ?? 10;
+
+      await FirebaseFirestore.instance
+          .collection('etudiants')
+          .doc(user.uid)
+          .update({
+            'points': FieldValue.increment(points),
+          });
+
+      await FirebaseFirestore.instance
+          .collection('postulations')
+          .doc(postulationId)
+          .update({
+            'pointsAttributed': true,
+          });
+
+      final updatedDoc = await FirebaseFirestore.instance
+          .collection('etudiants')
+          .doc(user.uid)
+          .get();
+          
+      setState(() => _etudiantData = updatedDoc.data());
+    } catch (e) {
+      debugPrint('Erreur lors de l\'ajout des points: $e');
     }
-
-    // Vérifier si les points ont déjà été attribués
-    if (postulationDoc.data()?['pointsAttributed'] == true) {
-      debugPrint('Points déjà attribués pour cette postulation');
-      return;
-    }
-
-    // Récupérer les points de l'action
-    final actionDoc = await FirebaseFirestore.instance
-        .collection('actions_volontariat')
-        .doc(actionId)
-        .get();
-    
-    final points = actionDoc.data()?['points'] ?? 10;
-
-    // Mettre à jour les points de l'étudiant
-    await FirebaseFirestore.instance
-        .collection('etudiants')
-        .doc(user.uid)
-        .update({
-          'points': FieldValue.increment(points),
-        });
-
-    // Marquer que les points ont été attribués
-    await FirebaseFirestore.instance
-        .collection('postulations')
-        .doc(postulationId)
-        .update({
-          'pointsAttributed': true,
-        });
-
-    // Recharger les données de l'étudiant
-    final updatedDoc = await FirebaseFirestore.instance
-        .collection('etudiants')
-        .doc(user.uid)
-        .get();
-        
-    setState(() => _etudiantData = updatedDoc.data());
-  } catch (e) {
-    debugPrint('Erreur lors de l\'ajout des points: $e');
   }
-}
+
   Future<void> postuler(String idAction) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -239,14 +310,14 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Erreur: ${e.toString()}"),
+      content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
-// ... (le reste du code reste inchangé)
-  Widget _buildDrawer() {
+
+ Widget _buildDrawer() {
     final user = FirebaseAuth.instance.currentUser;
     final points = _etudiantData?['points'] ?? 0;
     final prenom = _etudiantData?['prenom'] ?? '';
@@ -322,6 +393,7 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
     );
   }
 
+
   Widget _buildDrawerItem({
     required IconData icon,
     required String title,
@@ -339,29 +411,58 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
 
   Widget _buildWelcomePage() {
     final prenom = _etudiantData?['prenom'] ?? '';
+    final nom = _etudiantData?['nom'] ?? '';
     final points = _etudiantData?['points'] ?? 0;
-    
+    final label = _getStudentLabel(points);
+    final labelColor = _getLabelColor(points);
+    final nextLevel = _getNextLevel(points);
+    final progress = nextLevel != null 
+        ? (points - _getCurrentThreshold(points)) / 
+          (nextLevel['threshold'] - _getCurrentThreshold(points))
+        : 1.0;
+
     return SingleChildScrollView(
       padding: EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Bonjour, $prenom',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF226D68),
-            ),
-          ),
-          SizedBox(height: 10),
-          Text(
-            'Bienvenue dans votre espace étudiant',
-            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 30,
+                backgroundColor: Color(0xFF226D68).withOpacity(0.2),
+                child: Text(
+                  prenom.isNotEmpty ? prenom[0].toUpperCase() : '?',
+                  style: TextStyle(
+                    fontSize: 24,
+                    color: Color(0xFF226D68),
+                  ),
+                ),
+              ),
+              SizedBox(width: 15),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Bonjour, $prenom',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF226D68),
+                    ),
+                  ),
+                  Text(
+                    'Bienvenue dans votre espace',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
           SizedBox(height: 30),
-          
-          // Carte de bienvenue avec points
           Card(
             elevation: 3,
             shape: RoundedRectangleBorder(
@@ -393,7 +494,7 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
                       color: Color(0xFF226D68),
                     ),
                   ),
-                  SizedBox(height: 10),
+                  SizedBox(height: 5),
                   Text(
                     'Points accumulés',
                     style: TextStyle(color: Colors.grey[600]),
@@ -402,7 +503,81 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
               ),
             ),
           ),
+          SizedBox(height: 20),
+          Card(
+            elevation: 3,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.emoji_events, color: labelColor, size: 30),
+                      SizedBox(width: 10),
+                      Text(
+                        'Votre niveau',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 15),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: labelColor,
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  if (nextLevel != null)
+                    Column(
+                      children: [
+                        LinearProgressIndicator(
+                          value: progress,
+                          backgroundColor: Colors.grey[200],
+                          color: labelColor,
+                          minHeight: 8,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          '${(progress * 100).toStringAsFixed(0)}% vers ${nextLevel['name']}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      'Niveau maximum atteint!',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
           SizedBox(height: 30),
+          Text(
+            'Actions rapides',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF226D68),
+            ),
+          ),
+                SizedBox(height: 30),
           
           // Applications connues
           Text(
@@ -421,16 +596,19 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
             crossAxisSpacing: 15,
             mainAxisSpacing: 15,
             children: [
-              _buildAppCard(
-                icon: Icons.school,
-                title: 'Certifications',
-                color: Colors.blue,
-                   onTap: () {
-        // Ajoutez ici la navigation vers la page des certifications si elle existe
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fonctionnalité à venir')),
-        );}
-              ),
+            _buildAppCard(
+  icon: Icons.school,
+  title: 'Certifications',
+  color: Colors.blue,
+  onTap: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _buildCertificationsPage(),
+      ),
+    );
+  }
+),
               _buildAppCard(
                 icon: Icons.volunteer_activism,
                 title: 'Bénévolat',
@@ -466,7 +644,91 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
     );
   }
 
-  Widget _buildAppCard({required IconData icon, required String title, required Color color  ,required VoidCallback onTap, }) {
+
+Widget _buildCertificationsPage() {
+  final points = _etudiantData?['points'] ?? 0;
+  final earnedLabels = _getEarnedLabels(points);
+
+  return Scaffold(
+    appBar: AppBar(
+      title: Text("Mes Certifications"),
+      backgroundColor: Color(0xFF226D68),
+    ),
+    body: SingleChildScrollView(
+      padding: EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Mes Certificats Obtenus',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF226D68),
+            ),
+          ),
+          SizedBox(height: 20),
+          if (earnedLabels.isEmpty)
+            Text("Vous n'avez pas encore de certifications")
+          else
+            ...earnedLabels.map((label) => _buildCertificationCard(label)).toList(),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildCertificationCard(Map<String, dynamic> label) {
+  return Card(
+    elevation: 3,
+    margin: EdgeInsets.only(bottom: 15),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: label['color'].withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.verified, color: label['color']),
+          ),
+          SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label['name'],
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 5),
+                Text(
+                  'Seuil: ${label['threshold']} points',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.check_circle, color: Colors.green),
+        ],
+      ),
+    ),
+  );
+}
+  Widget _buildAppCard({
+    required IconData icon,
+    required String title,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
@@ -474,19 +736,26 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
-      onTap: onTap, // Utilisation du callback
+        onTap: onTap,
         child: Padding(
           padding: EdgeInsets.all(15),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 40, color: color),
+              Container(
+                padding: EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 30, color: color),
+              ),
               SizedBox(height: 10),
               Text(
                 title,
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 14,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -500,7 +769,14 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
   Widget _buildPointsPage() {
     final points = _etudiantData?['points'] ?? 0;
     final prenom = _etudiantData?['prenom'] ?? '';
-    
+    final label = _getStudentLabel(points);
+    final labelColor = _getLabelColor(points);
+    final nextLevel = _getNextLevel(points);
+    final progress = nextLevel != null 
+        ? (points - _getCurrentThreshold(points)) / 
+          (nextLevel['threshold'] - _getCurrentThreshold(points))
+        : 1.0;
+
     return SingleChildScrollView(
       padding: EdgeInsets.all(20),
       child: Column(
@@ -514,14 +790,20 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
               padding: EdgeInsets.all(25),
               child: Column(
                 children: [
-                  Text(
-                    'Votre score',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[600],
-                    ),
+                  Row(
+                    children: [
+                      Icon(Icons.star, color: Colors.amber, size: 30),
+                      SizedBox(width: 10),
+                      Text(
+                        'Vos points',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 10),
+                  SizedBox(height: 15),
                   Text(
                     '$points',
                     style: TextStyle(
@@ -532,34 +814,83 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
                   ),
                   SizedBox(height: 5),
                   Text(
-                    'Points',
+                    'Points accumulés',
                     style: TextStyle(
                       fontSize: 18,
                       color: Colors.grey[600],
                     ),
                   ),
                   SizedBox(height: 20),
-                  LinearProgressIndicator(
-                    value: points / 100, // Supposons que 100 est le max
-                    backgroundColor: Colors.grey[200],
-                    color: Color(0xFF226D68),
-                    minHeight: 10,
-                    borderRadius: BorderRadius.circular(5),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: 20),
+          Card(
+            elevation: 3,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Padding(
+              padding: EdgeInsets.all(25),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.emoji_events, color: labelColor, size: 30),
+                      SizedBox(width: 10),
+                      Text(
+                        'Votre niveau',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 10),
+                  SizedBox(height: 15),
                   Text(
-                    '${(points / 100 * 100).toStringAsFixed(0)}% du score maximal',
+                    label,
                     style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: labelColor,
                     ),
                   ),
+                  SizedBox(height: 10),
+                  if (nextLevel != null)
+                    Column(
+                      children: [
+                        LinearProgressIndicator(
+                          value: progress,
+                          backgroundColor: Colors.grey[200],
+                          color: labelColor,
+                          minHeight: 8,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          '${(progress * 100).toStringAsFixed(0)}% vers ${nextLevel['name']}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      'Niveau maximum atteint!',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
           SizedBox(height: 30),
-          
           Text(
             'Comment maximiser votre impact?',
             style: TextStyle(
@@ -569,44 +900,47 @@ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
             ),
           ),
           SizedBox(height: 15),
-          
-     _buildPointInfo(
-  icon: Icons.volunteer_activism,
-  title: 'Postuler à une action',
-  points: 'Premier pas',  // Remplace +5 points
-  color: Colors.green,
-),
-_buildPointInfo(
-  icon: Icons.check_circle,
-  title: 'Candidature acceptée',
-  points: 'Reconnaissance ',  // Remplace +15 points
-  color: Colors.lightGreen,
-),
-_buildPointInfo(
-  icon: Icons.event_available,
-  title: 'Participation effective',
-  points: 'Impact concret ',  // Remplace +30 points
-  color: Colors.green,
-),
-_buildPointInfo(
-  icon: Icons.star,
-  title: 'Évaluation positive',
-  points: 'Exemplarité reconnue',  // Remplace +10 points
-  color: Colors.blueAccent,
-),
-_buildPointInfo(
-  icon: Icons.leaderboard,
-  title: 'Affectation des labels ',
-  points: 'Progression',  // Remplace Jusqu'à +100 points
-  color: Colors.orange,
-),
-
+          _buildPointInfo(
+            icon: Icons.volunteer_activism,
+            title: 'Postuler à une action',
+            points: 'Premier pas',
+            color: Colors.green,
+          ),
+          _buildPointInfo(
+            icon: Icons.check_circle,
+            title: 'Candidature acceptée',
+            points: 'Reconnaissance',
+            color: Colors.lightGreen,
+          ),
+          _buildPointInfo(
+            icon: Icons.event_available,
+            title: 'Participation effective',
+            points: 'Impact concret',
+            color: Colors.green,
+          ),
+          _buildPointInfo(
+            icon: Icons.star,
+            title: 'Évaluation positive',
+            points: 'Exemplarité reconnue',
+            color: Colors.blueAccent,
+          ),
+          _buildPointInfo(
+            icon: Icons.leaderboard,
+            title: 'Affectation des labels',
+            points: 'Progression',
+            color: Colors.orange,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildPointInfo({required IconData icon, required String title, required String points, required Color color}) {
+  Widget _buildPointInfo({
+    required IconData icon,
+    required String title,
+    required String points,
+    required Color color,
+  }) {
     return Card(
       margin: EdgeInsets.only(bottom: 15),
       elevation: 1,
@@ -662,8 +996,10 @@ _buildPointInfo(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Mon Profil', 
-            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF226D68))),
+          title: const Text(
+            'Mon Profil',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF226D68)),
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -674,9 +1010,9 @@ _buildPointInfo(
                   child: Text(
                     prenom.isNotEmpty ? prenom[0].toUpperCase() : '?',
                     style: TextStyle(fontSize: 30, color: Color(0xFF226D68)),
-                ),),
+                  ),
+                ),
                 const SizedBox(height: 20),
-
                 TextFormField(
                   controller: _prenomController,
                   decoration: InputDecoration(
@@ -716,14 +1052,18 @@ _buildPointInfo(
                     children: [
                       Icon(Icons.star, color: Colors.amber),
                       const SizedBox(width: 8),
-                      Text('Points: $points',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text(
+                        'Points: $points',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text(user?.email ?? '',
-                  style: TextStyle(color: Colors.grey)),
+                Text(
+                  user?.email ?? '',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ],
             ),
           ),
@@ -737,7 +1077,7 @@ _buildPointInfo(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Color(0xFF226D68),
               ),
-              child: Text('Enregistrer',style: TextStyle(color: Colors.white)),
+              child: Text('Enregistrer', style: TextStyle(color: Colors.white)),
             ),
           ],
           shape: RoundedRectangleBorder(
@@ -770,7 +1110,7 @@ _buildPointInfo(
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Profil mis à jour avec succès!'), 
+          content: Text('Profil mis à jour avec succès!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -778,7 +1118,7 @@ _buildPointInfo(
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erreur: ${e.toString()}'), 
+          content: Text('Erreur: ${e.toString()}'),
           backgroundColor: Colors.red,
         ),
       );
@@ -809,7 +1149,8 @@ _buildPointInfo(
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15)),
+        borderRadius: BorderRadius.circular(15),
+      ),
       elevation: 2,
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
@@ -825,28 +1166,36 @@ _buildPointInfo(
                     child: Text(
                       titre,
                       style: const TextStyle(
-                        fontSize: 18, 
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF226D68)),
+                        color: Color(0xFF226D68),
+                      ),
                     ),
                   ),
                   Chip(
-                    label: Text('$points pts', 
-                      style: TextStyle(color: Colors.white)),
+                    label: Text(
+                      '$points pts',
+                      style: TextStyle(color: Colors.white),
+                    ),
                     backgroundColor: Color(0xFF226D68),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-              if (description.isNotEmpty) 
-                Text(description, 
-                  style: TextStyle(color: Colors.grey[700])),
+              if (description.isNotEmpty)
+                Text(
+                  description,
+                  style: TextStyle(color: Colors.grey[700]),
+                ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   Icon(Icons.location_on, size: 18, color: Colors.grey),
                   const SizedBox(width: 5),
-                  Text(lieu, style: TextStyle(color: Colors.grey[700])),
+                  Text(
+                    lieu,
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
                 ],
               ),
               const SizedBox(height: 5),
@@ -856,7 +1205,8 @@ _buildPointInfo(
                   const SizedBox(width: 5),
                   Text(
                     'Du $dateDebut au $dateFin',
-                    style: TextStyle(color: Colors.grey[700])),
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
                 ],
               ),
               const SizedBox(height: 15),
@@ -890,8 +1240,10 @@ _buildPointInfo(
               children: [
                 CircularProgressIndicator(color: Color(0xFF226D68)),
                 SizedBox(height: 20),
-                Text('Chargement des actions...',
-                  style: TextStyle(color: Colors.grey)),
+                Text(
+                  'Chargement des actions...',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ],
             ),
           )
@@ -907,7 +1259,8 @@ _buildPointInfo(
                   return Padding(
                     padding: EdgeInsets.all(20),
                     child: Center(
-                      child: CircularProgressIndicator(color: Color(0xFF226D68))),
+                      child: CircularProgressIndicator(color: Color(0xFF226D68)),
+                    ),
                   );
                 }
                 return _buildActionCard(_loadedActions[index]);
@@ -924,7 +1277,8 @@ _buildPointInfo(
       context: context,
       isScrollControlled: true,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) {
         return Padding(
           padding: const EdgeInsets.all(20),
@@ -943,21 +1297,33 @@ _buildPointInfo(
                   ),
                 ),
               ),
-              Text(data['titre'] ?? '',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF226D68))),
+              Text(
+                data['titre'] ?? '',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF226D68),
+                ),
+              ),
               SizedBox(height: 10),
-              Text('Du $dateDebut au $dateFin',
-                style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                'Du $dateDebut au $dateFin',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               SizedBox(height: 10),
-              Text(data['description'] ?? '',
-                style: TextStyle(fontSize: 16)),
+              Text(
+                data['description'] ?? '',
+                style: TextStyle(fontSize: 16),
+              ),
               SizedBox(height: 20),
               if (data['competencesRequises'] != null)
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Compétences requises:',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      'Compétences requises:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     SizedBox(height: 5),
                     Wrap(
                       spacing: 5,
@@ -979,16 +1345,17 @@ _buildPointInfo(
                     backgroundColor: Color(0xFF226D68),
                     padding: EdgeInsets.symmetric(vertical: 15),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                child: Text(
-  'Postuler maintenant',
-  style: TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.bold,
-    color: Colors.white,
-  ),
-),
+                  child: Text(
+                    'Postuler maintenant',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1011,14 +1378,13 @@ _buildPointInfo(
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Erreur: ${e.toString()}"), 
+          content: Text("Erreur: ${e.toString()}"),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
-
- @override
+@override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(

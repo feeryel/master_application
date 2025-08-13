@@ -271,12 +271,16 @@ class _ParticipantItem extends StatelessWidget {
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$points points attribués avec succès')),
+        SnackBar(content: Text('$points points attribués avec succès'),          backgroundColor: Colors.green,
+),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: ${e.toString()}')),
-      );
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
+      backgroundColor: Colors.red,
+    ),
+  );
     }
   }
 

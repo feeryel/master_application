@@ -72,7 +72,7 @@ Future<void> loginUser() async {
   } catch (e) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("Erreur : ${e.toString()}"),
+      content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
         backgroundColor: Colors.redAccent,
       ),
     );

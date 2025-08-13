@@ -246,18 +246,23 @@ Future<void> _updateStatut(String postulationId, String newStatut, String studen
       newStatus: newStatut,
     );
 
-    if (mounted) {
+    if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Statut mis à jour')),
+        SnackBar(
+          content: Text("Statut mis à jour !"),
+          backgroundColor: Colors.green,
+        ),
       );
       await _refreshData();
     }
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: ${e.toString()}')),
-      );
-    }
+   catch (e) {
+ if (!mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
+      backgroundColor: Colors.red,
+    ),
+  );
   }
 }
 

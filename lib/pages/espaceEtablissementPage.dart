@@ -29,13 +29,18 @@ class _EspaceEtablissementPageState extends State<EspaceEtablissementPage> {
   final Color textPrimary = const Color(0xFF2D3748);
   final Color textSecondary = const Color(0xFF718096);
 
-  @override
-  void initState() {
-    super.initState();
+@override
+void initState() {
+  super.initState();
+  try { // <-- Encapsulez pour attraper les erreurs
     _loadInitialData();
+  } catch (e) {
+    debugPrint("Erreur dans initState: $e");
   }
-
+}
   Future<void> _loadInitialData() async {
+      if (!mounted) return; // Ajoutez cette ligne
+
     setState(() => isLoading = true);
     try {
       await _loadEtablissementData();
@@ -55,12 +60,12 @@ class _EspaceEtablissementPageState extends State<EspaceEtablissementPage> {
         );
       }
     } finally {
-      if (mounted) setState(() => isLoading = false);
+    if (mounted) setState(() => isLoading = false); // Vérifiez mounted
     }
   }
 
   Future<void> _loadEtablissementData() async {
-    if (_currentUser == null) return;
+  if (_currentUser == null || !mounted) return; // <-- Ajoutez !mounted
     final doc = await FirebaseFirestore.instance
         .collection('etablissements')
         .doc(_currentUser!.uid)
@@ -71,7 +76,7 @@ class _EspaceEtablissementPageState extends State<EspaceEtablissementPage> {
   }
 
   Future<void> _loadStats() async {
-    if (_currentUser == null) return;
+  if (_currentUser == null || !mounted) return; // <-- Ajoutez !mounted
     final actionsQuery = await FirebaseFirestore.instance
         .collection('actions_volontariat')
         .where('idEtablissement', isEqualTo: _currentUser!.uid)
@@ -109,60 +114,71 @@ class _EspaceEtablissementPageState extends State<EspaceEtablissementPage> {
     }
   }
 
-  Widget _buildDrawer() {
-    return Drawer(
-      width: MediaQuery.of(context).size.width * 0.8,
-      elevation: 0,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.horizontal(right: Radius.circular(32)),
+Widget _buildDrawer() {
+  return Drawer(
+    width: MediaQuery.of(context).size.width * 0.8,
+    elevation: 0,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.horizontal(right: Radius.circular(32)),
+    ),
+    child: Container(
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: const BorderRadius.horizontal(right: Radius.circular(32)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            spreadRadius: 0,
+            offset: const Offset(0, 0),
+          ),
+        ],
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: const BorderRadius.horizontal(right: Radius.circular(32)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 20,
-              spreadRadius: 0,
-              offset: const Offset(0, 0),
+      child: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _buildDrawerHeader(),
+                const SizedBox(height: 20),
+                _buildDrawerItem(
+                  icon: Icons.dashboard_rounded,
+                  title: 'Tableau de bord',
+                  isSelected: ModalRoute.of(context)?.settings.name == '/espace_etablissement',
+                  onTap: () {
+                    Navigator.pop(context); // Close the drawer
+                    // Ensure navigation stays on EspaceEtablissementPage
+                    if (ModalRoute.of(context)?.settings.name != '/espace_etablissement') {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const EspaceEtablissementPage(),
+                          settings: const RouteSettings(name: '/espace_etablissement'),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.info_outline_rounded,
+                  title: 'Mon profil',
+                  onTap: _navigateToInformations,
+                ),
+                _buildDrawerItem(
+                  icon: Icons.business_rounded,
+                  title: 'Sponsors',
+                  onTap: _navigateToSponsors,
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  _buildDrawerHeader(),
-                  const SizedBox(height: 20),
-                  _buildDrawerItem(
-                    icon: Icons.dashboard_rounded,
-                    title: 'Tableau de bord',
-                    isSelected: true,
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _buildDrawerItem(
-                    icon: Icons.info_outline_rounded,
-                    title: 'Mon profil',
-                    onTap: _navigateToInformations,
-                  ),
-                  _buildDrawerItem(
-                    icon: Icons.business_rounded,
-                    title: 'Sponsors',
-                    onTap: _navigateToSponsors,
-                  ),
-               
-                ],
-              ),
-            ),
-            _buildLogoutButton(),
-          ],
-        ),
+          ),
+          _buildLogoutButton(),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildDrawerHeader() {
     return Container(
@@ -481,7 +497,7 @@ class _EspaceEtablissementPageState extends State<EspaceEtablissementPage> {
           ),
         ),
       ),
-    ).animate().fadeIn(duration: 300.ms).slideX(begin: 0.1);
+    ).animate().fadeIn(duration: 300.ms);
   }
 
   void _navigateWithAnimation(Widget page) {
