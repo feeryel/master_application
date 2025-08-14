@@ -753,7 +753,7 @@ Widget _buildDrawer() {
                         children: [
                           _buildStatCard(
                             nombreActions.toString(),
-                            "Actions en cours",
+                            "Actions ",
                             Icons.event_available_rounded,
                             accentColor,
                           ),
