@@ -149,15 +149,15 @@ Widget _buildDrawer() {
                   onTap: () {
                     Navigator.pop(context); // Close the drawer
                     // Ensure navigation stays on EspaceEtablissementPage
-                    if (ModalRoute.of(context)?.settings.name != '/espace_etablissement') {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const EspaceEtablissementPage(),
-                          settings: const RouteSettings(name: '/espace_etablissement'),
-                        ),
-                      );
-                    }
+                   if (ModalRoute.of(context)?.settings.name != '/espace_etablissement') {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const EspaceEtablissementPage(),
+      settings: const RouteSettings(name: '/espace_etablissement'),
+    ),
+  );
+}
                   },
                 ),
                 _buildDrawerItem(

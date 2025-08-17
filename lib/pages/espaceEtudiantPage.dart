@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:intl/intl.dart';
 import 'loginPage.dart';
 import 'mesCandidaturesPage.dart';
 import 'notification_service.dart';
-
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 class EspaceEtudiantPage extends StatefulWidget {
   const EspaceEtudiantPage({super.key});
 
@@ -25,6 +28,7 @@ class _EspaceEtudiantPageState extends State<EspaceEtudiantPage> {
   final TextEditingController _prenomController = TextEditingController();
   final TextEditingController _telController = TextEditingController();
   int _selectedIndex = 0;
+  bool _showHistorique = false;
 
   final List<Widget> _pages = [];
   final PageController _pageController = PageController();
@@ -622,11 +626,14 @@ List<Map<String, dynamic>> _getEarnedLabels(int points) {
                 icon: Icons.event,
                 title: 'Historique de participation',
                 color: Colors.orange,
-                   onTap: () {
-        // Ajoutez ici la navigation vers la page des certifications si elle existe
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fonctionnalité à venir')),
-        );}
+                  onTap: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _buildHistoriquePage(),
+      ),
+    );
+  }
               ),
               _buildAppCard(
                 icon: Icons.post_add_rounded,
@@ -650,9 +657,16 @@ Widget _buildCertificationsPage() {
   final earnedLabels = _getEarnedLabels(points);
 
   return Scaffold(
-    appBar: AppBar(
+  appBar: AppBar(
       title: Text("Mes Certifications"),
       backgroundColor: Color(0xFF226D68),
+      actions: [
+        IconButton(
+          icon: Icon(Icons.picture_as_pdf),
+          onPressed: _generateCertificationPDF,
+          tooltip: 'Exporter en PDF',
+        ),
+      ],
     ),
     body: SingleChildScrollView(
       padding: EdgeInsets.all(20),
@@ -1086,6 +1100,492 @@ Widget _buildCertificationCard(Map<String, dynamic> label) {
         );
       },
     );
+  }
+  Widget _buildHistoriquePage() {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Historique de participation"),
+        backgroundColor: Color(0xFF226D68),
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.picture_as_pdf),
+            onPressed: _generateHistoriquePDF,
+            tooltip: 'Exporter en PDF',
+          ),
+        ],
+      ),
+      body: _buildHistoriqueContent(),
+    );
+  }
+
+    Widget _buildHistoriqueContent() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('postulations')
+          .where('idEtudiant', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+          .where('statut', isEqualTo: 'accepté')
+          .where('participationConfirmee', isEqualTo: true)
+          .orderBy('dateConfirmation', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(child: CircularProgressIndicator(color: Color(0xFF226D68)));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, size: 50, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  'Aucune participation enregistrée',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: EdgeInsets.all(16),
+          itemCount: snapshot.data!.docs.length,
+          itemBuilder: (context, index) {
+            final postulation = snapshot.data!.docs[index];
+            return _buildParticipationCard(postulation);
+          },
+        );
+      },
+    );
+  }
+
+    Widget _buildParticipationCard(DocumentSnapshot postulation) {
+    final data = postulation.data() as Map<String, dynamic>;
+    
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('actions_volontariat')
+          .doc(data['idAction'])
+          .get(),
+      builder: (context, actionSnapshot) {
+        if (!actionSnapshot.hasData) {
+          return SizedBox.shrink();
+        }
+
+        final actionData = actionSnapshot.data!.data() as Map<String, dynamic>? ?? {};
+        final dateConfirmation = (data['dateConfirmation'] as Timestamp).toDate();
+
+        return Card(
+          margin: EdgeInsets.only(bottom: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          elevation: 2,
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Row(
+  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  children: [
+    Expanded(
+      child: Text(
+        actionData['titre'] ?? 'Action inconnue',
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF226D68),
+        ),
+      ),
+    ),
+    Chip(
+      label: Text('${actionData['points'] ?? 0} pts'),
+      backgroundColor: Color(0xFF226D68).withOpacity(0.1),
+      labelStyle: TextStyle(color: Color(0xFF226D68)),
+    ),
+  ],
+),
+                SizedBox(height: 8),
+                if (actionData['description']?.isNotEmpty ?? false)
+                  Text(
+                    actionData['description']!,
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
+                SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(Icons.location_on, size: 16, color: Colors.grey),
+                    SizedBox(width: 8),
+                    Text(
+                      actionData['lieu'] ?? 'Lieu inconnu',
+                      style: TextStyle(color: Colors.grey[700]),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                    SizedBox(width: 8),
+                    Text(
+                      'Participé le ${DateFormat('dd/MM/yyyy').format(dateConfirmation)}',
+                      style: TextStyle(color: Colors.grey[700]),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+Future<void> _generateCertificationPDF() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+
+  try {
+    final points = _etudiantData?['points'] ?? 0;
+    final prenom = _etudiantData?['prenom'] ?? '';
+    final nom = _etudiantData?['nom'] ?? '';
+    final fullName = '$prenom $nom'.trim();
+    final earnedLabels = _getEarnedLabels(points);
+    
+    if (earnedLabels.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Vous n\'avez pas encore de certifications'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final highestCertification = earnedLabels.first;
+    final certColor = PdfColor.fromInt(highestCertification['color'].value);
+
+    // 1. Création du document PDF
+    final pdf = pw.Document();
+
+    // 2. Ajout de la page de certificat
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        theme: pw.ThemeData.withFont(
+          base: await PdfGoogleFonts.openSansRegular(),
+          bold: await PdfGoogleFonts.openSansBold(),
+        ),
+        build: (pw.Context context) {
+          return pw.Stack(
+            children: [
+              // Arrière-plan décoratif
+              pw.Positioned.fill(
+                child: pw.Opacity(
+                  opacity: 0.1,
+                  child: pw.Container(
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(
+                        color: certColor,
+                        width: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Contenu principal centré
+              pw.Center(
+                child: pw.Column(
+                  mainAxisSize: pw.MainAxisSize.min,
+                  children: [
+                   
+                    
+                    
+                    // Titre principal
+                    pw.Text(
+                      'CERTIFICAT DE RECONNAISSANCE',
+                      style: pw.TextStyle(
+                        fontSize: 22,
+                        fontWeight: pw.FontWeight.bold,
+                        color: certColor,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    
+                    pw.SizedBox(height: 40),
+                    
+                    // Texte de certification
+                    pw.Text(
+                      'Ceci certifie que',
+                      style: pw.TextStyle(fontSize: 16),
+                    ),
+                    
+                    pw.SizedBox(height: 10),
+                    
+                    // Nom de l'étudiant
+                    pw.Text(
+                      fullName.isNotEmpty ? fullName : user.email ?? '',
+                      style: pw.TextStyle(
+                        fontSize: 24,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    
+                    pw.SizedBox(height: 10),
+                    
+                    // Description
+                    pw.Padding(
+                      padding: pw.EdgeInsets.symmetric(horizontal: 50),
+                      child: pw.Text(
+                        'a obtenu(e) avec succès le titre de',
+                        style: pw.TextStyle(fontSize: 16),
+                        textAlign: pw.TextAlign.center,
+                      ),
+                    ),
+                    
+                    pw.SizedBox(height: 20),
+                    
+                    // Titre de certification
+                    pw.Container(
+                      padding: pw.EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+                      decoration: pw.BoxDecoration(
+                        color: certColor,
+                        borderRadius: pw.BorderRadius.circular(5),
+                      ),
+                      child: pw.Text(
+                        highestCertification['name'],
+                        style: pw.TextStyle(
+                          fontSize: 22,
+                          color: PdfColors.white,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    
+                    pw.SizedBox(height: 20),
+                    
+                    // Points
+                    pw.Text(
+                      'Avec un total de $points points accumulés',
+                      style: pw.TextStyle(fontSize: 14),
+                    ),
+                    
+                    pw.SizedBox(height: 40),
+                    
+                    // Ligne de signature
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                      children: [
+                        pw.Column(
+                          children: [   pw.Text(
+                              'L\'université de Gabes ',
+                              style: pw.TextStyle(fontSize: 12),
+                            ),
+                            pw.SizedBox(height: 5),
+                            pw.Container(
+                              width: 150,
+                              height: 1,
+                              color: PdfColors.black,
+                            ),
+                            pw.SizedBox(height: 5),
+                            pw.Text(
+                              'Directeur du Programme',
+                              style: pw.TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        pw.Column(
+                          children: [
+                            pw.Text(
+                              DateFormat('le dd/MM/yyyy').format(DateTime.now()),
+                              style: pw.TextStyle(fontSize: 12),
+                            ),
+                            pw.SizedBox(height: 5),
+                            pw.Container(
+                              width: 150,
+                              height: 1,
+                              color: PdfColors.black,
+                            ),
+                            pw.SizedBox(height: 5),
+                            pw.Text(
+                              'Date',
+                              style: pw.TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    
+                    // Cachet officiel (optionnel)
+                    pw.Positioned(
+                      right: 50,
+                      bottom: 50,
+                      child: pw.Container(
+                        width: 80,
+                        height: 80,
+                        decoration: pw.BoxDecoration(
+                          shape: pw.BoxShape.circle,
+                          border: pw.Border.all(
+                            color: PdfColors.red,
+                            width: 2,
+                          ),
+                        ),
+                        child: pw.Center(
+                          child: pw.Text(
+                            'OFFICIEL',
+                            style: pw.TextStyle(
+                              fontSize: 10,
+                              color: PdfColors.red,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    // Export du PDF
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+    );
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Erreur lors de la génération du certificat: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+
+
+
+ Future<void> _generateHistoriquePDF() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // Récupérer les données
+      final query = await FirebaseFirestore.instance
+          .collection('postulations')
+          .where('idEtudiant', isEqualTo: user.uid)
+          .where('statut', isEqualTo: 'accepté')
+          .where('participationConfirmee', isEqualTo: true)
+          .orderBy('dateConfirmation', descending: true)
+          .get();
+
+      // Préparer les données pour le PDF
+      final List<Map<String, dynamic>> pdfData = [];
+      
+      for (final postulation in query.docs) {
+        final data = postulation.data() as Map<String, dynamic>;
+        final action = await FirebaseFirestore.instance
+            .collection('actions_volontariat')
+            .doc(data['idAction'])
+            .get();
+        final actionData = action.data() as Map<String, dynamic>? ?? {};
+        
+        pdfData.add({
+          'titre': actionData['titre'] ?? 'Action inconnue',
+          'description': actionData['description'] ?? '',
+          'lieu': actionData['lieu'] ?? 'Lieu inconnu',
+          'date': DateFormat('dd/MM/yyyy')
+              .format((data['dateConfirmation'] as Timestamp).toDate()),
+          'points': actionData['points'] ?? 0,
+        });
+      }
+
+      // Générer le PDF
+      final pdf = pw.Document();
+
+      pdf.addPage(
+        pw.Page(
+          build: (pw.Context context) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Header(
+                  level: 0,
+                  child: pw.Text('Mon Historique de Participation',
+                      style: pw.TextStyle(
+                        fontSize: 24,
+                        fontWeight: pw.FontWeight.bold,
+                      )),
+                ),
+                pw.SizedBox(height: 20),
+                pw.Text('Étudiant: ${user.email}'),
+                pw.SizedBox(height: 10),
+                pw.Text('Date d\'export: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}'),
+                pw.SizedBox(height: 30),
+                ...pdfData.map((participation) => pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      participation['titre'],
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 5),
+                    pw.Text(participation['description']),
+                    pw.SizedBox(height: 5),
+                    pw.Row(
+                      children: [
+                        pw.Text('Lieu: '),
+                        pw.Text(participation['lieu']),
+                      ],
+                    ),
+                    pw.Row(
+                      children: [
+                        pw.Text('Date: '),
+                        pw.Text(participation['date']),
+                      ],
+                    ),
+                    pw.Row(
+                      children: [
+                        pw.Text('Points: '),
+                        pw.Text('${participation['points']}'),
+                      ],
+                    ),
+                    pw.Divider(),
+                    pw.SizedBox(height: 10),
+                  ],
+                )).toList(),
+              ],
+            );
+          },
+        ),
+      );
+
+          // Exporter le PDF
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => pdf.save(),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors de la génération du PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _updateProfile() async {

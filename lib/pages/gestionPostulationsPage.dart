@@ -284,109 +284,128 @@ class _ParticipantItem extends StatelessWidget {
     }
   }
 
-  Future<void> _marquerAbsence(BuildContext context) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('postulations')
-          .doc(postulationId)
-          .update({
-        'participationConfirmee': false,
-        'dateConfirmation': Timestamp.now(),
-      });
+Future<void> _marquerAbsence(BuildContext context) async {
+  final now = DateTime.now();
+  final formattedDate = DateFormat('dd/MM/yyyy').format(now);
+  
+  try {
+    await FirebaseFirestore.instance
+        .collection('postulations')
+        .doc(postulationId)
+        .update({
+      'participationConfirmee': false,
+      'dateConfirmation': Timestamp.now(),
+    });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Absence enregistrée'),
-          backgroundColor: warningColor,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur: ${e.toString()}'),
-          backgroundColor: warningColor,
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final nomComplet = data['nomComplet'] ?? 'Participant inconnu';
-    final participationConfirmee = data['participationConfirmee'] ?? false;
-    final dateConfirmation = (data['dateConfirmation'] as Timestamp?)?.toDate();
-
-    return Card(
-      elevation: 2,
-      margin: EdgeInsets.symmetric(vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: primaryColor.withOpacity(0.1),
-                  child: Icon(Icons.person, color: primaryColor),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        nomComplet,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        data['email'] ?? 'Email non disponible',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (participationConfirmee)
-                  Icon(Icons.verified, color: successColor, size: 24)
-                else
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.check_circle, color: successColor),
-                        onPressed: () => _confirmerParticipation(context),
-                        tooltip: 'Confirmer participation',
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.cancel, color: warningColor),
-                        onPressed: () => _marquerAbsence(context),
-                        tooltip: 'Marquer comme absent',
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            if (participationConfirmee && dateConfirmation != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Confirmé le ${DateFormat('dd/MM/yyyy à HH:mm').format(dateConfirmation)}',
-                  style: TextStyle(
-                    color: successColor,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-          ],
-        ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('L\'étudiant est absent le $formattedDate'),
+        backgroundColor: Colors.red, // Couleur rouge pour l'absence
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Erreur: ${e.toString()}'),
+        backgroundColor: Colors.red,
       ),
     );
   }
-}
+}@override
+Widget build(BuildContext context) {
+  final nomComplet = data['nomComplet'] ?? 'Participant inconnu';
+  final participationConfirmee = data['participationConfirmee'] ?? false;
+  final dateConfirmation = (data['dateConfirmation'] as Timestamp?)?.toDate();
+  final isAbsent = dateConfirmation != null && !participationConfirmee;
+
+  return Card(
+    elevation: 2,
+    margin: EdgeInsets.symmetric(vertical: 8),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: isAbsent 
+                    ? Colors.red.withOpacity(0.1)
+                    : primaryColor.withOpacity(0.1),
+                child: Icon(
+                  isAbsent ? Icons.person_off : Icons.person,
+                  color: isAbsent ? Colors.red : primaryColor,
+                ),
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      nomComplet,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: isAbsent ? Colors.red : null,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      data['email'] ?? 'Email non disponible',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isAbsent ? Colors.red[600] : Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (participationConfirmee)
+                Icon(Icons.verified, color: successColor, size: 24)
+              else if (!isAbsent)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.check_circle, color: successColor),
+                      onPressed: () => _confirmerParticipation(context),
+                      tooltip: 'Confirmer participation',
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.cancel, color: warningColor),
+                      onPressed: () => _marquerAbsence(context),
+                      tooltip: 'Marquer comme absent',
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          if (participationConfirmee && dateConfirmation != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Présent(e) le ${DateFormat('dd/MM/yyyy').format(dateConfirmation)}',
+                style: TextStyle(
+                  color: successColor,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          if (isAbsent)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Absent(e) le ${DateFormat('dd/MM/yyyy').format(dateConfirmation)}',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}}
