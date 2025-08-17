@@ -5,6 +5,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:master_application/pages/loginPage.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 class EspaceEntreprisePage extends StatefulWidget {
   const EspaceEntreprisePage({super.key});
@@ -24,6 +27,8 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
   List<DocumentSnapshot> _sponsoredActions = [];
   List<DocumentSnapshot> _establishments = [];
   List<DocumentSnapshot> _entrepriseActions = [];
+  List<DocumentSnapshot> _sponsorshipHistory = [];
+
   bool _isSponsoring = false;
   int _currentIndex = 0;
   DocumentSnapshot? _selectedEtablissement;
@@ -52,6 +57,8 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
       await _loadEstablishments();
       await _loadActions();
       await _loadStats();
+      await _loadSponsorshipHistory();
+
     } catch (e) {
       debugPrint('Erreur lors du chargement initial: $e');
       if (mounted) {
@@ -168,6 +175,101 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
     }
   }
 
+Future<void> _generateAndPrintPDF() async {
+  try {
+    setState(() => _isLoading = true);
+    
+    // Create the PDF document
+    final pdf = pw.Document();
+
+    // Add a page to the PDF
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Header(
+                level: 0,
+                child: pw.Text(
+                  'Historique des Sponsorships',
+                  style: pw.TextStyle(
+                    fontSize: 24,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Entreprise: ${_entrepriseData?['nom'] ?? 'Non spécifié'}',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              // pw.Text(
+              //   'Date de génération: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}',
+              //   style: const pw.TextStyle(fontSize: 12),
+              // ),
+             // pw.Divider(),
+              pw.SizedBox(height: 20),
+              ..._sponsorshipHistory.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      data['titre'] ?? 'Action sans titre',
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 8),
+                    pw.Text(
+                      'Établissement: ${data['idEtablissement'] ?? 'Non spécifié'}',
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
+                    pw.Text(
+                      'Dates: ${_formatDate(data['dateDebut'])} - ${_formatDate(data['dateFin'])}',
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
+                    pw.Text(
+                      'Statut: ${data['statut'] ?? 'Inconnu'}',
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
+                    pw.Divider(),
+                    pw.SizedBox(height: 16),
+                  ],
+                );
+              }).toList(),
+            ],
+          );
+        },
+      ),
+    );
+
+    // Print or share the PDF document
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+    );
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur lors de la génération du PDF: ${e.toString()}"),
+          backgroundColor: warningColor,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
+  }
+}
+
   Future<void> _loadStats() async {
     final user = _auth.currentUser;
     if (user == null) return;
@@ -225,6 +327,38 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
       }
     }
   }
+
+
+Future<void> _loadSponsorshipHistory() async {
+  setState(() => _isLoading = true);
+  try {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    // Charger les actions sponsorisées par l'entreprise
+    final snapshot = await _firestore
+        .collection('actions_volontariat')
+        .where('sponsors', arrayContains: user.uid)
+        .orderBy('dateMiseAJour', descending: true)
+        .get();
+
+    setState(() => _sponsorshipHistory = snapshot.docs);
+  } catch (e) {
+    debugPrint('Erreur chargement historique: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text("Erreur de chargement de l'historique"),
+          backgroundColor: warningColor,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
+  }
+}
 
   Future<void> _logout() async {
     if (!mounted) return;
@@ -416,6 +550,15 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
                     onTap: () {
                       Navigator.pop(context);
                       _showInformationsDialog();
+                    },
+                  ),
+                       _buildDrawerItem(
+                    icon: Icons.info_outline_rounded,
+                    title: 'Historique des sponsorships',
+                  isSelected: _currentIndex == 5,
+                    onTap: () {
+                      Navigator.pop(context);
+                      setState(() => _currentIndex = 5);
                     },
                   ),
                 ],
@@ -1845,7 +1988,142 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
       ),
     );
   }
+Widget _buildSponsorshipHistory() {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: _buildTabHeader(
+              "Historique des Sponsorships",
+              Icons.history_rounded,
+              accentColor,
+            ),
+          ),
+          if (_sponsorshipHistory.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(right: 24),
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: IconButton(
+                icon: Icon(Icons.print_rounded, color: primaryColor),
+                onPressed: _generateAndPrintPDF,
+                tooltip: 'Exporter en PDF',
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 20),
+      if (_sponsorshipHistory.isEmpty)
+        _buildEmptyState(
+          "Aucun historique de sponsorship trouvé",
+          Icons.history_rounded,
+        )
+      else
+        ..._sponsorshipHistory.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return FutureBuilder<DocumentSnapshot>(
+            future: _firestore.collection('etablissements').doc(data['idEtablissement']).get(),
+            builder: (context, snapshot) {
+              final etablissement = snapshot.data?.data() as Map<String, dynamic>?;
+              final etablissementNom = etablissement?['nom'] ?? 'Établissement inconnu';
 
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                constraints: BoxConstraints(
+                  minHeight: 180, // Hauteur minimale uniforme
+                ),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 15,
+                      spreadRadius: 0,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data['titre'] ?? 'Action inconnue',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Icon(Icons.business_rounded, size: 16, color: textSecondary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              "Établissement: $etablissementNom",
+                              style: TextStyle(
+                                color: textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today_rounded, size: 16, color: textSecondary),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Dates: ${_formatDate(data['dateDebut'])} - ${_formatDate(data['dateFin'])}",
+                            style: TextStyle(
+                              color: textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded, size: 16, color: textSecondary),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Statut: ${data['statut'] ?? 'Inconnu'}",
+                            style: TextStyle(
+                              color: successColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (data['description'] != null && data['description'].isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          data['description'],
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontSize: 14,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        }).toList(),
+    ],
+  );
+}
   String _formatDate(dynamic date) {
     try {
       if (date is Timestamp) {
@@ -1928,8 +2206,10 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
                     else if (_currentIndex == 3)
                       _buildEstablishmentsTab()
                     else if (_currentIndex == 4)
-                      _buildEstablishmentActions(),
-                  ],
+                      _buildEstablishmentActions()
+                   else if (_currentIndex == 5)
+                    _buildSponsorshipHistory(),
+                ],
                 ),
               ),
             ),

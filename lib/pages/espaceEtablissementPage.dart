@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:master_application/pages/gestionActionsPage.dart';
 import 'package:master_application/pages/gestionPostulationsPage.dart';
+import 'package:master_application/pages/historique_page.dart';
 import 'package:master_application/pages/loginPage.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -45,6 +46,8 @@ void initState() {
     try {
       await _loadEtablissementData();
       await _loadStats();
+        await   _loadHistorique(); // Ajoutez cette ligne
+
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -170,6 +173,11 @@ Widget _buildDrawer() {
                   title: 'Sponsors',
                   onTap: _navigateToSponsors,
                 ),
+                     _buildDrawerItem(
+                  icon: Icons.history_rounded,
+                  title: 'Historiques',
+                  onTap: _navigateToHistorique,
+                ),
               ],
             ),
           ),
@@ -177,6 +185,14 @@ Widget _buildDrawer() {
         ],
       ),
     ),
+  );
+}
+
+
+
+void _navigateToHistoriquePage() {
+  Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => const HistoriquePage()),
   );
 }
 
@@ -326,6 +342,49 @@ Widget _buildDrawer() {
       ),
     );
   }
+List<QueryDocumentSnapshot> _historiqueActions = [];
+Map<String, List<QueryDocumentSnapshot>> _participationsParAction = {};
+
+Future<void> _loadHistorique() async {
+  if (!mounted) return; // 🔒 protection dès l'entrée
+  try {
+    // Charger les actions terminées
+    final actionsQuery = await FirebaseFirestore.instance
+        .collection('actions_volontariat')
+        .where('idEtablissement', isEqualTo: _currentUser?.uid)
+        .where('statut', isEqualTo: 'Terminé')
+        .orderBy('dateFin', descending: true)
+        .get();
+
+    if (!mounted) return; // 🔒 recheck après l'attente Firestore
+    _historiqueActions = actionsQuery.docs;
+
+    // Charger les participations pour chaque action
+    for (var action in _historiqueActions) {
+      final participationsQuery = await FirebaseFirestore.instance
+          .collection('postulations')
+          .where('idAction', isEqualTo: action.id)
+          .where('statut', isEqualTo: 'accepté')
+          .get();
+
+      if (!mounted) return; // 🔒 protection en cas de navigation pendant la boucle
+      _participationsParAction[action.id] = participationsQuery.docs;
+    }
+
+    if (mounted) {
+      setState(() {}); // 🔒 setState uniquement si widget toujours actif
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur historique: ${e.toString()}"),
+          backgroundColor: warningColor,
+        ),
+      );
+    }
+  }
+}
 
   Widget _buildLogoutButton() {
     return Container(
@@ -383,7 +442,215 @@ Widget _buildDrawer() {
       ),
     ).then((_) => _loadInitialData());
   }
+Future<void> _navigateToHistorique() async {
+  try {
+    // Ferme le drawer d'abord
+    if (mounted) Navigator.pop(context);
+    
+    // Navigue vers HistoriquePage
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const HistoriquePage()),
+    );
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erreur de navigation: $e")),
+      );
+    }
+  }
+}
 
+Widget _buildHistoriqueContent() {
+  return RefreshIndicator(
+    color: primaryColor,
+    backgroundColor: cardColor,
+    onRefresh: _loadHistorique,
+    child: SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          _buildHistoriqueHeader(),
+          const SizedBox(height: 20),
+          if (_historiqueActions.isEmpty)
+            _buildEmptyHistorique()
+          else
+            ..._historiqueActions.map((action) => 
+              _buildActionCard(action, _participationsParAction[action.id] ?? [])
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildHistoriqueHeader() {
+  return Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: cardColor,
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 20,
+          spreadRadius: 0,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [primaryColor, accentColor],
+            ),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Icon(Icons.history_rounded, color: Colors.white, size: 28),
+        ),
+        const SizedBox(width: 20),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Historique des Actions',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${_historiqueActions.length} action${_historiqueActions.length > 1 ? 's' : ''} terminée${_historiqueActions.length > 1 ? 's' : ''}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildEmptyHistorique() {
+  return Container(
+    padding: const EdgeInsets.all(40),
+    child: Column(
+      children: [
+        Icon(
+          Icons.history_rounded,
+          size: 64,
+          color: textSecondary.withOpacity(0.5),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Aucune action terminée',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: textSecondary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Vos actions terminées apparaîtront ici',
+          style: TextStyle(
+            fontSize: 14,
+            color: textSecondary.withOpacity(0.7),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    ),
+  );
+}
+
+
+Widget _buildActionCard(
+  QueryDocumentSnapshot action, 
+  List<QueryDocumentSnapshot> participations
+) {
+  final data = action.data() as Map<String, dynamic>;
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    decoration: BoxDecoration(
+      color: cardColor,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.1),
+          blurRadius: 15,
+          offset: const Offset(0, 5),
+        ),
+      ],
+    ),
+    child: ExpansionTile(
+      tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      title: Text(
+        data['titre'] ?? 'Action sans titre',
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          color: textPrimary,
+          fontSize: 16,
+        ),
+      ),
+      subtitle: Text(
+        'Terminée le ${data['dateFin']} • ${participations.length} participant${participations.length > 1 ? 's' : ''}',
+        style: TextStyle(color: textSecondary),
+      ),
+      childrenPadding: const EdgeInsets.only(bottom: 16),
+      children: participations.isEmpty
+          ? [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Aucune participation enregistrée',
+                  style: TextStyle(color: textSecondary),
+                ),
+              )
+            ]
+          : [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Participants:',
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              ...participations.map((participation) {
+                final partData = participation.data() as Map<String, dynamic>;
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: primaryColor.withOpacity(0.1),
+                    child: Icon(Icons.person, color: primaryColor),
+                  ),
+                  title: Text(partData['nomComplet'] ?? 'Participant inconnu'),
+                  subtitle: Text(
+                    partData['email'] ?? '',
+                    style: TextStyle(color: textSecondary),
+                  ),
+                  trailing: partData['participationConfirmee'] == true
+                      ? Icon(Icons.verified, color: successColor)
+                      : Icon(Icons.pending, color: warningColor),
+                );
+              }).toList(),
+            ],
+    ),
+  );
+}
   void _navigateToSponsors() {
     Navigator.push(
       context,
@@ -1914,3 +2181,6 @@ class _ParametresPageState extends State<ParametresPage> {
     );
   }
 }
+
+
+

@@ -657,7 +657,7 @@ Widget _buildCertificationsPage() {
   final earnedLabels = _getEarnedLabels(points);
 
   return Scaffold(
-  appBar: AppBar(
+    appBar: AppBar(
       title: Text("Mes Certifications"),
       backgroundColor: Color(0xFF226D68),
       actions: [
@@ -679,19 +679,23 @@ Widget _buildCertificationsPage() {
               fontSize: 22,
               fontWeight: FontWeight.bold,
               color: Color(0xFF226D68),
-            ),
-          ),
+            )),
           SizedBox(height: 20),
           if (earnedLabels.isEmpty)
             Text("Vous n'avez pas encore de certifications")
           else
             ...earnedLabels.map((label) => _buildCertificationCard(label)).toList(),
+          
+          // Add progress to next level
+          if (_getNextLevel(points) != null) ...[
+            SizedBox(height: 30),
+            
+          ],
         ],
       ),
     ),
   );
 }
-
 Widget _buildCertificationCard(Map<String, dynamic> label) {
   return Card(
     elevation: 3,
