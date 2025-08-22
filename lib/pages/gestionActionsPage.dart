@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'liste_candidats_page.dart';
 
@@ -28,20 +29,30 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
   final Color secondaryColor = const Color(0xFF3A7D44);
   final Color accentColor = const Color(0xFF5C8D89);
 
-  Future<void> _selectDate(TextEditingController controller, {DateTime? firstDate}) async {
-    DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: firstDate ?? DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (picked != null) {
-      setState(() {
-        controller.text = DateFormat('yyyy-MM-dd').format(picked);
-      });
-    }
+Future<void> _selectDate(TextEditingController controller, {DateTime? firstDate}) async {
+  DateTime initialDate = DateTime.now().add(const Duration(days: 1)); // Demain comme date initiale
+  DateTime minimumDate = DateTime.now().add(const Duration(days: 1)); // Date minimale est demain
+  
+  // Si on sélectionne la date de fin et qu'une date de début est déjà définie,
+  // utiliser la date de début comme date minimale
+  if (firstDate != null && firstDate.isAfter(minimumDate)) {
+    minimumDate = firstDate;
+    initialDate = firstDate;
   }
-
+  
+  DateTime? picked = await showDatePicker(
+    context: context,
+    initialDate: initialDate,
+    firstDate: minimumDate, // Utiliser minimumDate comme date minimale
+    lastDate: DateTime(2100),
+  );
+  
+  if (picked != null) {
+    setState(() {
+      controller.text = DateFormat('yyyy-MM-dd').format(picked);
+    });
+  }
+}
   bool _validateDates() {
     if (_dateDebut.text.isEmpty || _dateFin.text.isEmpty) return true;
     
@@ -70,9 +81,13 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       }
 
       // Validation des points
-      final int points = int.tryParse(_points.text) ?? 10;
-      if (points <= 0) {
-        _showErrorAlert('Le nombre de points doit être positif');
+ final int? points = int.tryParse(_points.text);
+      if (points == null) {
+        _showErrorAlert('Le nombre de points doit être un nombre valide');
+        return;
+      }
+      if (points < 10 || points > 60) {
+        _showErrorAlert('Le nombre de points doit être entre 10 et 60');
         return;
       }
 
@@ -174,7 +189,7 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
       _lieu.text = data['lieu']?.toString() ?? '';
       _dateDebut.text = data['dateDebut']?.toString() ?? '';
       _dateFin.text = data['dateFin']?.toString() ?? '';
-      _points.text = (data['points'] ?? 10).toString();
+_points.text = (data['points'] ?? 10).toString();
       _isEditing = true;
       _editingActionId = action.id;
       _showForm = true;
@@ -328,15 +343,15 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _dateDebut,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: "Date Début*",
-                      border: OutlineInputBorder(),
-                    ),
-                    onTap: () => _selectDate(_dateDebut),
-                  ),
+          TextFormField(
+  controller: _dateDebut,
+  readOnly: true,
+  decoration: const InputDecoration(
+    labelText: "Date Début*",
+    border: OutlineInputBorder(),
+  ),
+  onTap: () => _selectDate(_dateDebut, firstDate: DateTime.now().add(const Duration(days: 1))),
+),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _dateFin,
@@ -354,14 +369,23 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  TextField(
+             TextField(
                     controller: _points,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: "Points à attribuer*",
-                      hintText: "Ex: 15",
-                      border: OutlineInputBorder(),
+                      hintText: "Entre 10 et 60",
+                      border: const OutlineInputBorder(),
+                      errorText: _points.text.isNotEmpty && (int.tryParse(_points.text) ?? 0) < 10 || (int.tryParse(_points.text) ?? 0) > 60
+                          ? 'Veuillez entrer un nombre entre 10 et 60'
+                          : null,
                     ),
                     keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly, // Allow only digits
+                    ],
+                    onChanged: (value) {
+                      setState(() {}); // Update UI to show error text if needed
+                    },
                   ),
                   const SizedBox(height: 20),
                   Row(
@@ -450,121 +474,168 @@ class _GestionActionsPageState extends State<GestionActionsPage> {
     );
   }
 
-  Widget _buildActionItem(DocumentSnapshot action, Map<String, dynamic> data) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ListeCandidatsPage(
-                idAction: action.id,
-                titreAction: data['titre']?.toString() ?? 'Action',
-              ),
+Widget _buildActionItem(DocumentSnapshot action, Map<String, dynamic> data) {
+  return Card(
+    elevation: 1,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ListeCandidatsPage(
+              idAction: action.id,
+              titreAction: data['titre']?.toString() ?? 'Action',
             ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: secondaryColor.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.event, color: primaryColor),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: secondaryColor.withOpacity(0.2),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      data['titre']?.toString() ?? 'Sans titre',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    icon: Icon(Icons.more_vert, color: Colors.grey.shade600),
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Modifier'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Supprimer', style: TextStyle(color: Colors.red)),
-                      ),
-                    ],
-                    onSelected: (value) {
-                      if (value == 'edit') {
-                        _startEditing(action);
-                      } else if (value == 'delete') {
-                        _confirmDelete(action.id);
-                      }
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (data['description'] != null &&
-                  data['description'].toString().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Icon(Icons.event, color: primaryColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
                   child: Text(
-                    data['description'].toString(),
-                    style: TextStyle(color: Colors.grey.shade700),
+                    data['titre']?.toString() ?? 'Sans titre',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
-              Row(
-                children: [
-                  Icon(Icons.location_on, size: 16, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    data['lieu']?.toString() ?? 'Non spécifié',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                ],
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert, color: Colors.grey.shade600),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Text('Modifier'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Supprimer', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      _startEditing(action);
+                    } else if (value == 'delete') {
+                      _confirmDelete(action.id);
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // AFFICHAGE DES SPONSORS
+            FutureBuilder<QuerySnapshot>(
+              future: FirebaseFirestore.instance
+                  .collection('actions_volontariat')
+                  .doc(action.id)
+                  .collection('contributions')
+                  .get(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Container();
+                }
+                
+                final sponsorsCount = snapshot.data?.docs.length ?? 0;
+                
+                if (sponsorsCount > 0) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.volunteer_activism_rounded, 
+                            size: 14, color: Colors.green),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$sponsorsCount sponsor${sponsorsCount > 1 ? 's' : ''}',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return Container();
+              },
+            ),
+            
+            if (data['description'] != null &&
+                data['description'].toString().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  data['description'].toString(),
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
               ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(Icons.calendar_today, size: 16, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    "${data['dateDebut']?.toString() ?? '?'} - ${data['dateFin']?.toString() ?? '?'}",
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(Icons.star, size: 16, color: Colors.amber),
-                  const SizedBox(width: 4),
-                  Text(
-                    "${data['points'] ?? 10} points",
-                    style: TextStyle(color: Colors.amber),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            Row(
+              children: [
+                Icon(Icons.location_on, size: 16, color: Colors.grey.shade600),
+                const SizedBox(width: 4),
+                Text(
+                  data['lieu']?.toString() ?? 'Non spécifié',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.calendar_today, size: 16, color: Colors.grey.shade600),
+                const SizedBox(width: 4),
+                Text(
+                  "${data['dateDebut']?.toString() ?? '?'} - ${data['dateFin']?.toString() ?? '?'}",
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.star, size: 16, color: Colors.amber),
+                const SizedBox(width: 4),
+                Text(
+                  "${data['points'] ?? 10} points",
+                  style: TextStyle(color: Colors.amber),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+
+
 }

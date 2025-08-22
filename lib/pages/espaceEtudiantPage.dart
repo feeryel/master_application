@@ -573,15 +573,15 @@ List<Map<String, dynamic>> _getEarnedLabels(int points) {
             ),
           ),
           SizedBox(height: 30),
-          Text(
-            'Actions rapides',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF226D68),
-            ),
-          ),
-                SizedBox(height: 30),
+          // Text(
+          //   'Actions rapides',
+          //   style: TextStyle(
+          //     fontSize: 18,
+          //     fontWeight: FontWeight.bold,
+          //     color: Color(0xFF226D68),
+          //   ),
+          // ),
+          //       SizedBox(height: 30),
           
           // Applications connues
           Text(

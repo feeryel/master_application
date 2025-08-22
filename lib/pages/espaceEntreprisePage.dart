@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -175,100 +174,139 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
     }
   }
 
-Future<void> _generateAndPrintPDF() async {
-  try {
-    setState(() => _isLoading = true);
-    
-    // Create the PDF document
-    final pdf = pw.Document();
+  Future<void> _generateAndPrintPDF() async {
+    try {
+      setState(() => _isLoading = true);
 
-    // Add a page to the PDF
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Header(
-                level: 0,
-                child: pw.Text(
-                  'Historique des Sponsorships',
+      final user = _auth.currentUser;
+      if (user == null) return;
+
+      // Collecter toutes les données de manière asynchrone
+      List<Map<String, dynamic>> historyWithDetails = [];
+      for (var doc in _sponsorshipHistory) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        // Récupérer les contributions
+        final contribSnap = await _firestore
+            .collection('actions_volontariat')
+            .doc(doc.id)
+            .collection('contributions')
+            .where('entrepriseId', isEqualTo: user.uid)
+            .get();
+
+        String contributionDetails = 'Aucune contribution';
+        if (contribSnap.docs.isNotEmpty) {
+          final contribution = contribSnap.docs.first.data();
+          contributionDetails = contribution['type'] == 'argent'
+              ? 'Montant: ${contribution['details']} TND'
+              : 'Matériel: ${contribution['details']}';
+        }
+
+        // Récupérer le nom de l'établissement (optionnel, mais pour cohérence)
+        final etabDoc = await _firestore.collection('etablissements').doc(data['idEtablissement']).get();
+        final etabNom = etabDoc.data()?['nom'] ?? 'Non spécifié';
+
+        historyWithDetails.add({
+          'titre': data['titre'] ?? 'Action sans titre',
+          'etablissement': etabNom,
+          'dateDebut': formatDate(data['dateDebut']),
+          'dateFin': formatDate(data['dateFin']),
+          'statut': data['statut'] ?? 'Inconnu',
+          'contribution': contributionDetails,
+        });
+      }
+
+      // Créer le PDF
+      final pdf = pw.Document();
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Header(
+                  level: 0,
+                  child: pw.Text(
+                    'Historique des Sponsorships - ${_entrepriseData?['nom'] ?? 'Non spécifié'}',
+                    style: pw.TextStyle(
+                      fontSize: 24,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ),
+                pw.SizedBox(height: 20),
+                pw.Text(
+                  'Les actions sponsorisés',
                   style: pw.TextStyle(
-                    fontSize: 24,
+                    fontSize: 16,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
-              ),
-              pw.SizedBox(height: 20),
-              pw.Text(
-                'Entreprise: ${_entrepriseData?['nom'] ?? 'Non spécifié'}',
-                style: pw.TextStyle(
-                  fontSize: 16,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              // pw.Text(
-              //   'Date de génération: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}',
-              //   style: const pw.TextStyle(fontSize: 12),
-              // ),
-             // pw.Divider(),
-              pw.SizedBox(height: 20),
-              ..._sponsorshipHistory.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                return pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      data['titre'] ?? 'Action sans titre',
-                      style: pw.TextStyle(
-                        fontSize: 16,
-                        fontWeight: pw.FontWeight.bold,
+                // pw.Text(
+                //   'Date de génération: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}',
+                //   style: const pw.TextStyle(fontSize: 12),
+                // ),
+                pw.SizedBox(height: 20),
+                ...historyWithDetails.map((item) {
+                  return pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        item['titre'],
+                        style: pw.TextStyle(
+                          fontSize: 16,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    pw.SizedBox(height: 8),
-                    pw.Text(
-                      'Établissement: ${data['idEtablissement'] ?? 'Non spécifié'}',
-                      style: const pw.TextStyle(fontSize: 12),
-                    ),
-                    pw.Text(
-                      'Dates: ${_formatDate(data['dateDebut'])} - ${_formatDate(data['dateFin'])}',
-                      style: const pw.TextStyle(fontSize: 12),
-                    ),
-                    pw.Text(
-                      'Statut: ${data['statut'] ?? 'Inconnu'}',
-                      style: const pw.TextStyle(fontSize: 12),
-                    ),
-                    pw.Divider(),
-                    pw.SizedBox(height: 16),
-                  ],
-                );
-              }).toList(),
-            ],
-          );
-        },
-      ),
-    );
-
-    // Print or share the PDF document
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-    );
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur lors de la génération du PDF: ${e.toString()}"),
-          backgroundColor: warningColor,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
+                      pw.SizedBox(height: 8),
+                      pw.Text(
+                        'Établissement: ${item['etablissement']}',
+                        style: pw.TextStyle(fontSize: 12),
+                      ),
+                      pw.Text(
+                        'Dates: ${item['dateDebut']} - ${item['dateFin']}',
+                        style: pw.TextStyle(fontSize: 12),
+                      ),
+                      pw.Text(
+                        'Statut: ${item['statut']}',
+                        style: pw.TextStyle(fontSize: 12),
+                      ),
+                      pw.Text(
+                        'Contribution: ${item['contribution']}',
+                        style: pw.TextStyle(fontSize: 12),
+                      ),
+                      pw.Divider(),
+                      pw.SizedBox(height: 16),
+                    ],
+                  );
+                }).toList(),
+              ],
+            );
+          },
         ),
       );
+
+      // Imprimer ou partager le PDF
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => pdf.save(),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Erreur lors de la génération du PDF: ${e.toString()}"),
+            backgroundColor: warningColor,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
   }
-}
 
   Future<void> _loadStats() async {
     final user = _auth.currentUser;
@@ -288,19 +326,34 @@ Future<void> _generateAndPrintPDF() async {
     }
   }
 
-  Future<void> _sponsoriserAction(String actionId) async {
+  Future<void> _sponsoriserAction(String actionId, String contributionType, String contributionDetails) async {
     final user = _auth.currentUser;
     if (user == null || !mounted) return;
     try {
       setState(() => _isSponsoring = true);
+
+      // Mettre à jour l'action pour inclure l'utilisateur comme sponsor
       await _firestore.collection('actions_volontariat').doc(actionId).update({
         'sponsors': FieldValue.arrayUnion([user.uid]),
         'dateMiseAJour': FieldValue.serverTimestamp(),
       });
+
+      // Enregistrer les détails de la contribution dans une sous-collection
+      await _firestore
+          .collection('actions_volontariat')
+          .doc(actionId)
+          .collection('contributions')
+          .add({
+        'entrepriseId': user.uid,
+        'type': contributionType,
+        'details': contributionDetails,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text("Sponsoring confirmé !"),
+          content: const Text("Sponsoring confirmé avec succès !"),
           backgroundColor: successColor,
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(16),
@@ -308,8 +361,9 @@ Future<void> _generateAndPrintPDF() async {
       );
       await _loadStats();
       await _loadActions();
+      await _loadSponsorshipHistory();
       if (_currentIndex == 4) {
-        setState(() => _currentIndex = 3); // Return to Établissements tab
+        setState(() => _currentIndex = 3); // Retourner à l'onglet Établissements
       }
     } catch (e) {
       if (!mounted) return;
@@ -328,37 +382,36 @@ Future<void> _generateAndPrintPDF() async {
     }
   }
 
+  Future<void> _loadSponsorshipHistory() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return;
 
-Future<void> _loadSponsorshipHistory() async {
-  setState(() => _isLoading = true);
-  try {
-    final user = _auth.currentUser;
-    if (user == null) return;
+      // Charger les actions sponsorisées par l'entreprise
+      final snapshot = await _firestore
+          .collection('actions_volontariat')
+          .where('sponsors', arrayContains: user.uid)
+          .orderBy('dateMiseAJour', descending: true)
+          .get();
 
-    // Charger les actions sponsorisées par l'entreprise
-    final snapshot = await _firestore
-        .collection('actions_volontariat')
-        .where('sponsors', arrayContains: user.uid)
-        .orderBy('dateMiseAJour', descending: true)
-        .get();
-
-    setState(() => _sponsorshipHistory = snapshot.docs);
-  } catch (e) {
-    debugPrint('Erreur chargement historique: $e');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("Erreur de chargement de l'historique"),
-          backgroundColor: warningColor,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      setState(() => _sponsorshipHistory = snapshot.docs);
+    } catch (e) {
+      debugPrint('Erreur chargement historique: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text("Erreur de chargement de l'historique"),
+            backgroundColor: warningColor,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
   }
-}
 
   Future<void> _logout() async {
     if (!mounted) return;
@@ -552,10 +605,10 @@ Future<void> _loadSponsorshipHistory() async {
                       _showInformationsDialog();
                     },
                   ),
-                       _buildDrawerItem(
+                  _buildDrawerItem(
                     icon: Icons.info_outline_rounded,
                     title: 'Historique des sponsorships',
-                  isSelected: _currentIndex == 5,
+                    isSelected: _currentIndex == 5,
                     onTap: () {
                       Navigator.pop(context);
                       setState(() => _currentIndex = 5);
@@ -1262,239 +1315,271 @@ Future<void> _loadSponsorshipHistory() async {
     );
   }
 
-  Widget _buildActionCard(DocumentSnapshot action) {
-    final data = action.data() as Map<String, dynamic>;
-    final sponsors = List<String>.from(data['sponsors'] ?? []);
-    final estSponsor = sponsors.contains(_auth.currentUser?.uid);
+void _showSponsorshipDialog(String actionId) {
+  String contributionType = 'argent'; // Par défaut : argent
+  TextEditingController montantController = TextEditingController();
+  TextEditingController materielController = TextEditingController();
 
-    return FutureBuilder<DocumentSnapshot>(
-      future: _firestore.collection('etablissements').doc(data['idEtablissement']).get(),
-      builder: (context, snapshot) {
-        final etablissement = snapshot.data?.data() as Map<String, dynamic>?;
-        final etablissementNom = etablissement?['nom'] ?? 'Établissement inconnu';
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 15,
-                spreadRadius: 0,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        data['titre'] ?? 'Action sans titre',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: textPrimary,
-                        ),
-                      ),
-                    ),
-                    if (estSponsor)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: successColor,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          "Sponsorisée",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: secondaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.business_rounded, size: 16, color: secondaryColor),
-                      const SizedBox(width: 6),
-                      Text(
-                        etablissementNom,
-                        style: TextStyle(
-                          color: secondaryColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  data['description'] ?? 'Pas de description',
-                  style: TextStyle(
-                    color: textSecondary,
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.calendar_today_rounded, size: 16, color: textSecondary),
-                      const SizedBox(width: 6),
-                      Text(
-                        "${_formatDate(data['dateDebut'])} - ${_formatDate(data['dateFin'])}",
-                        style: TextStyle(
-                          color: textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: estSponsor
-                          ? []
-                          : [
-                              BoxShadow(
-                                color: primaryColor.withOpacity(0.3),
-                                blurRadius: 10,
-                                spreadRadius: 0,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                    ),
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: estSponsor ? Colors.grey[300] : primaryColor,
-                        foregroundColor: estSponsor ? Colors.grey[600] : Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      onPressed: estSponsor ? null : () => _sponsoriserAction(action.id),
-                      child: _isSponsoring
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  estSponsor ? Icons.check_rounded : Icons.volunteer_activism_rounded,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  estSponsor ? "Sponsorisée" : "Sponsoriser",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (BuildContext context, StateSetter setModalState) {
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.5,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  spreadRadius: 5,
                 ),
               ],
             ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSponsoredActionCard(DocumentSnapshot action) {
-    final data = action.data() as Map<String, dynamic>;
-
-    return FutureBuilder<DocumentSnapshot>(
-      future: _firestore.collection('etablissements').doc(data['idEtablissement']).get(),
-      builder: (context, snapshot) {
-        final etablissement = snapshot.data?.data() as Map<String, dynamic>?;
-        final etablissementNom = etablissement?['nom'] ?? 'Établissement inconnu';
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: successColor.withOpacity(0.3), width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: successColor.withOpacity(0.1),
-                blurRadius: 15,
-                spreadRadius: 0,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        data['titre'] ?? 'Action sans titre',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: textPrimary,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Sponsoriser l\'action',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Type de contribution',
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      ChoiceChip(
+                        label: Text('Argent'),
+                        selected: contributionType == 'argent',
+                        onSelected: (selected) {
+                          if (selected) {
+                            setModalState(() => contributionType = 'argent');
+                          }
+                        },
+                        selectedColor: primaryColor.withOpacity(0.2),
+                        labelStyle: TextStyle(
+                          color: contributionType == 'argent' ? primaryColor : textSecondary,
                         ),
                       ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: successColor,
-                        borderRadius: BorderRadius.circular(20),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: Text('Matériel'),
+                        selected: contributionType == 'materiel',
+                        onSelected: (selected) {
+                          if (selected) {
+                            setModalState(() => contributionType = 'materiel');
+                          }
+                        },
+                        selectedColor: primaryColor.withOpacity(0.2),
+                        labelStyle: TextStyle(
+                          color: contributionType == 'materiel' ? primaryColor : textSecondary,
+                        ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.verified_rounded, size: 16, color: Colors.white),
-                          const SizedBox(width: 4),
-                          Text(
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (contributionType == 'argent')
+                    TextField(
+                      controller: montantController,
+                      decoration: InputDecoration(
+                        labelText: 'Montant (TND)',
+                        labelStyle: TextStyle(color: primaryColor),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: primaryColor, width: 2),
+                        ),
+                      ),
+                      keyboardType: TextInputType.number,
+                    )
+                  else
+                    TextField(
+                      controller: materielController,
+                      decoration: InputDecoration(
+                        labelText: 'Description du matériel',
+                        labelStyle: TextStyle(color: primaryColor),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: primaryColor, width: 2),
+                        ),
+                      ),
+                      maxLines: 3,
+                    ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: warningColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context); // Ferme la boîte de dialogue
+                        },
+                        child: Text(
+                          'Annuler',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () async {
+                          if ((contributionType == 'argent' && montantController.text.isNotEmpty) ||
+                              (contributionType == 'materiel' && materielController.text.isNotEmpty)) {
+                            if (contributionType == 'argent' && double.tryParse(montantController.text) == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Veuillez entrer un montant valide'),
+                                  backgroundColor: warningColor,
+                                  behavior: SnackBarBehavior.floating,
+                                  margin: const EdgeInsets.all(16),
+                                ),
+                              );
+                              return;
+                            }
+                            await _sponsoriserAction(
+                              actionId,
+                              contributionType,
+                              contributionType == 'argent'
+                                  ? montantController.text
+                                  : materielController.text,
+                            );
+                            Navigator.pop(context);
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Veuillez remplir tous les champs'),
+                                backgroundColor: warningColor,
+                                behavior: SnackBarBehavior.floating,
+                                margin: const EdgeInsets.all(16),
+                              ),
+                            );
+                          }
+                        },
+                        child: Text(
+                          'Confirmer',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+Widget _buildActionCard(DocumentSnapshot action) {
+  final data = action.data() as Map<String, dynamic>;
+  final sponsors = List<String>.from(data['sponsors'] ?? []);
+  final estSponsor = sponsors.contains(_auth.currentUser?.uid);
+
+  return FutureBuilder<DocumentSnapshot>(
+    future: _firestore.collection('etablissements').doc(data['idEtablissement']).get(),
+    builder: (context, snapshot) {
+      final etablissement = snapshot.data?.data() as Map<String, dynamic>?;
+      final etablissementNom = etablissement?['nom'] ?? 'Établissement inconnu';
+
+      return FutureBuilder<QuerySnapshot>(
+        future: _firestore
+            .collection('actions_volontariat')
+            .doc(action.id)
+            .collection('contributions')
+            .where('entrepriseId', isEqualTo: _auth.currentUser?.uid)
+            .get(),
+        builder: (context, contributionsSnapshot) {
+          String typeContribution = '';
+          String detailsContribution = '';
+
+          if (contributionsSnapshot.hasData && contributionsSnapshot.data!.docs.isNotEmpty) {
+            final contribution = contributionsSnapshot.data!.docs.first.data() as Map<String, dynamic>;
+            typeContribution = contribution['type'] == 'argent' ? 'Argent' : 'Matériel';
+            detailsContribution = contribution['details'] ?? '';
+          }
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 15,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          data['titre'] ?? 'Action sans titre',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: textPrimary,
+                          ),
+                        ),
+                      ),
+                      if (estSponsor)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: successColor,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
                             "Sponsorisée",
                             style: TextStyle(
                               color: Colors.white,
@@ -1502,74 +1587,547 @@ Future<void> _loadSponsorshipHistory() async {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: secondaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.business_rounded, size: 16, color: secondaryColor),
+                        const SizedBox(width: 6),
+                        Text(
+                          etablissementNom,
+                          style: TextStyle(
+                            color: secondaryColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (estSponsor) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: typeContribution == 'Argent' 
+                            ? Colors.green.withOpacity(0.1)
+                            : Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            typeContribution == 'Argent' 
+                                ? Icons.monetization_on_rounded 
+                                : Icons.inventory_2_rounded,
+                            size: 16,
+                            color: typeContribution == 'Argent' ? Colors.green : Colors.blue,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Contribution: $typeContribution',
+                            style: TextStyle(
+                              color: typeContribution == 'Argent' ? Colors.green : Colors.blue,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
                         ],
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    if (detailsContribution.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline_rounded, size: 16, color: textSecondary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                typeContribution == 'Argent' 
+                                    ? 'Montant: $detailsContribution TND'
+                                    : 'Matériel: $detailsContribution',
+                                style: TextStyle(
+                                  color: textSecondary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: secondaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 16),
+                  Text(
+                    data['description'] ?? 'Pas de description',
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.business_rounded, size: 16, color: secondaryColor),
-                      const SizedBox(width: 6),
-                      Text(
-                        etablissementNom,
-                        style: TextStyle(
-                          color: secondaryColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.calendar_today_rounded, size: 16, color: textSecondary),
+                        const SizedBox(width: 6),
+                        Text(
+                          "${formatDate(data['dateDebut'])} - ${formatDate(data['dateFin'])}",
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: estSponsor
+                            ? []
+                            : [
+                                BoxShadow(
+                                  color: primaryColor.withOpacity(0.3),
+                                  blurRadius: 10,
+                                  spreadRadius: 0,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  data['description'] ?? 'Pas de description',
-                  style: TextStyle(
-                    color: textSecondary,
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.calendar_today_rounded, size: 16, color: textSecondary),
-                      const SizedBox(width: 6),
-                      Text(
-                        "${_formatDate(data['dateDebut'])} - ${_formatDate(data['dateFin'])}",
-                        style: TextStyle(
-                          color: textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: estSponsor ? Colors.grey[300] : primaryColor,
+                          foregroundColor: estSponsor ? Colors.grey[600] : Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
+                        onPressed: estSponsor ? null : () => _showSponsorshipDialog(action.id),
+                        child: _isSponsoring
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    estSponsor ? Icons.check_rounded : Icons.volunteer_activism_rounded,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    estSponsor ? "Sponsorisée" : "Sponsoriser",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
                       ),
-                    ],
+                    ),
                   ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+
+
+
+void _showSponsorsDetails(String actionId, String actionTitle) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) {
+      return Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              spreadRadius: 5,
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'Sponsors - $actionTitle',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: textPrimary,
+                ),
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<QuerySnapshot>(
+                future: _firestore
+                    .collection('actions_volontariat')
+                    .doc(actionId)
+                    .collection('contributions')
+                    .get(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator(color: primaryColor));
+                  }
+                  
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'Aucun sponsor pour cette action',
+                        style: TextStyle(color: textSecondary),
+                      ),
+                    );
+                  }
+                  
+                  final contributions = snapshot.data!.docs;
+                  
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: contributions.length,
+                    itemBuilder: (context, index) {
+                      final contribution = contributions[index].data() as Map<String, dynamic>;
+                      
+                      return FutureBuilder<DocumentSnapshot>(
+                        future: _firestore.collection('entreprises')
+                            .doc(contribution['entrepriseId'])
+                            .get(),
+                        builder: (context, entrepriseSnapshot) {
+                          if (entrepriseSnapshot.connectionState == ConnectionState.waiting) {
+                            return Container();
+                          }
+                          
+                          final entrepriseData = entrepriseSnapshot.data?.data() 
+                              as Map<String, dynamic>?;
+                          final entrepriseNom = entrepriseData?['nom'] 
+                              ?? 'Entreprise inconnue';
+                          
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey[200]!),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: primaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Icon(
+                                    contribution['type'] == 'argent' 
+                                        ? Icons.monetization_on_rounded 
+                                        : Icons.inventory_2_rounded,
+                                    color: primaryColor,
+                                    size: 24,
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        entrepriseNom,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        contribution['type'] == 'argent'
+                                            ? 'Contribution: ${contribution['details']} TND'
+                                            : 'Contribution: ${contribution['details']}',
+                                        style: TextStyle(
+                                          color: textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+
+
+
+Widget _buildSponsoredActionCard(DocumentSnapshot action) {
+  final data = action.data() as Map<String, dynamic>;
+
+  return FutureBuilder<DocumentSnapshot>(
+    future: _firestore.collection('etablissements').doc(data['idEtablissement']).get(),
+    builder: (context, snapshot) {
+      final etablissement = snapshot.data?.data() as Map<String, dynamic>?;
+      final etablissementNom = etablissement?['nom'] ?? 'Établissement inconnu';
+
+      return FutureBuilder<QuerySnapshot>(
+        future: _firestore
+            .collection('actions_volontariat')
+            .doc(action.id)
+            .collection('contributions')
+            .where('entrepriseId', isEqualTo: _auth.currentUser?.uid)
+            .get(),
+        builder: (context, contributionSnapshot) {
+          String typeContribution = 'Non spécifié';
+          String detailsContribution = '';
+
+          if (contributionSnapshot.hasData && contributionSnapshot.data!.docs.isNotEmpty) {
+            final contribution = contributionSnapshot.data!.docs.first.data() as Map<String, dynamic>;
+            typeContribution = contribution['type'] == 'argent' ? 'Argent' : 'Matériel';
+            detailsContribution = contribution['details'] ?? '';
+          }
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: successColor.withOpacity(0.3), width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: successColor.withOpacity(0.1),
+                  blurRadius: 15,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
-          ),
-        );
-      },
-    );
-  }
-
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          data['titre'] ?? 'Action sans titre',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: textPrimary,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: successColor,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified_rounded, size: 16, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              "Sponsorisée",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: secondaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.business_rounded, size: 16, color: secondaryColor),
+                        const SizedBox(width: 6),
+                        Text(
+                          etablissementNom,
+                          style: TextStyle(
+                            color: secondaryColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // AFFICHAGE DU TYPE DE CONTRIBUTION
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: typeContribution == 'Argent' 
+                          ? Colors.green.withOpacity(0.1)
+                          : Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          typeContribution == 'Argent' 
+                              ? Icons.monetization_on_rounded 
+                              : Icons.inventory_2_rounded,
+                          size: 16,
+                          color: typeContribution == 'Argent' ? Colors.green : Colors.blue,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Contribution: $typeContribution',
+                          style: TextStyle(
+                            color: typeContribution == 'Argent' ? Colors.green : Colors.blue,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  // AFFICHAGE DES DÉTAILS DE LA CONTRIBUTION
+                  if (detailsContribution.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded, size: 16, color: textSecondary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              typeContribution == 'Argent' 
+                                  ? 'Montant: $detailsContribution TND'
+                                  : 'Matériel: $detailsContribution',
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  
+                  Text(
+                    data['description'] ?? 'Pas de description',
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.calendar_today_rounded, size: 16, color: textSecondary),
+                        const SizedBox(width: 6),
+                        Text(
+                          "${formatDate(data['dateDebut'])} - ${formatDate(data['dateFin'])}",
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
   Widget _buildEstablishmentCard(DocumentSnapshot etablissement) {
     final data = etablissement.data() as Map<String, dynamic>;
 
@@ -1988,6 +2546,7 @@ Future<void> _loadSponsorshipHistory() async {
       ),
     );
   }
+
 Widget _buildSponsorshipHistory() {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2031,92 +2590,134 @@ Widget _buildSponsorshipHistory() {
               final etablissement = snapshot.data?.data() as Map<String, dynamic>?;
               final etablissementNom = etablissement?['nom'] ?? 'Établissement inconnu';
 
-              return Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                constraints: BoxConstraints(
-                  minHeight: 180, // Hauteur minimale uniforme
-                ),
-                decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 15,
-                      spreadRadius: 0,
-                      offset: const Offset(0, 2),
+              return FutureBuilder<QuerySnapshot>(
+                future: _firestore
+                    .collection('actions_volontariat')
+                    .doc(doc.id)
+                    .collection('contributions')
+                    .where('entrepriseId', isEqualTo: _auth.currentUser?.uid)
+                    .get(),
+                builder: (context, contributionSnapshot) {
+                  String contributionDetails = 'Aucune contribution';
+                  String contributionType = 'Non spécifié';
+                  if (contributionSnapshot.hasData && contributionSnapshot.data!.docs.isNotEmpty) {
+                    final contribution = contributionSnapshot.data!.docs.first.data() as Map<String, dynamic>;
+                    contributionType = contribution['type'] == 'argent' ? 'Argent' : 'Matériel';
+                    contributionDetails = contribution['type'] == 'argent'
+                        ? 'Montant: ${contribution['details']} TND'
+                        : 'Matériel: ${contribution['details']}';
+                  }
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    constraints: BoxConstraints(
+                      minHeight: 180, // Hauteur minimale uniforme
                     ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        data['titre'] ?? 'Action inconnue',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Icon(Icons.business_rounded, size: 16, color: textSecondary),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              "Établissement: $etablissementNom",
-                              style: TextStyle(
-                                color: textSecondary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today_rounded, size: 16, color: textSecondary),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Dates: ${_formatDate(data['dateDebut'])} - ${_formatDate(data['dateFin'])}",
-                            style: TextStyle(
-                              color: textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(Icons.info_outline_rounded, size: 16, color: textSecondary),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Statut: ${data['statut'] ?? 'Inconnu'}",
-                            style: TextStyle(
-                              color: successColor,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (data['description'] != null && data['description'].isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(
-                          data['description'],
-                          style: TextStyle(
-                            color: textSecondary,
-                            fontSize: 14,
-                            height: 1.5,
-                          ),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.06),
+                          blurRadius: 15,
+                          spreadRadius: 0,
+                          offset: const Offset(0, 2),
                         ),
                       ],
-                    ],
-                  ),
-                ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            data['titre'] ?? 'Action inconnue',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Icon(Icons.business_rounded, size: 16, color: textSecondary),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "Établissement: $etablissementNom",
+                                  style: TextStyle(
+                                    color: textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Icon(Icons.calendar_today_rounded, size: 16, color: textSecondary),
+                              const SizedBox(width: 8),
+                              Text(
+                                "Dates: ${formatDate(data['dateDebut'])} - ${formatDate(data['dateFin'])}",
+                                style: TextStyle(
+                                  color: textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline_rounded, size: 16, color: textSecondary),
+                              const SizedBox(width: 8),
+                              Text(
+                                "Statut: ${data['statut'] ?? 'Inconnu'}",
+                                style: TextStyle(
+                                  color: successColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Icon(
+                                contributionType == 'Argent'
+                                    ? Icons.monetization_on_rounded
+                                    : Icons.inventory_2_rounded,
+                                size: 16,
+                                color: contributionType == 'Argent' ? Colors.green : Colors.blue,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  contributionDetails,
+                                  style: TextStyle(
+                                    color: textSecondary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (data['description'] != null && data['description'].isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              data['description'],
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 14,
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
               );
             },
           );
@@ -2124,19 +2725,24 @@ Widget _buildSponsorshipHistory() {
     ],
   );
 }
-  String _formatDate(dynamic date) {
-    try {
-      if (date is Timestamp) {
-        return DateFormat('dd/MM/yyyy').format(date.toDate());
-      } else if (date is String) {
-        final parsedDate = DateTime.parse(date);
-        return DateFormat('dd/MM/yyyy').format(parsedDate);
-      }
-    } catch (e) {
-      debugPrint('Erreur de formatage de date: $e');
+// Avant de parser la date, formatez-la correctement
+String formatDate(String dateString) {
+  try {
+    // Essayer de parser directement
+    DateTime.parse(dateString);
+    return dateString;
+  } catch (e) {
+    // Formater manuellement si échec
+    List<String> parts = dateString.split('-');
+    if (parts.length == 3) {
+      String year = parts[0];
+      String month = parts[1].padLeft(2, '0');
+      String day = parts[2].padLeft(2, '0');
+      return '$year-$month-$day';
     }
-    return 'Date inconnue';
+    return dateString;
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -2207,9 +2813,9 @@ Widget _buildSponsorshipHistory() {
                       _buildEstablishmentsTab()
                     else if (_currentIndex == 4)
                       _buildEstablishmentActions()
-                   else if (_currentIndex == 5)
-                    _buildSponsorshipHistory(),
-                ],
+                    else if (_currentIndex == 5)
+                      _buildSponsorshipHistory(),
+                  ],
                 ),
               ),
             ),

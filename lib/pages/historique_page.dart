@@ -18,6 +18,8 @@ class _HistoriquePageState extends State<HistoriquePage> {
   List<DocumentSnapshot> _historiqueActions = [];
   Map<String, List<DocumentSnapshot>> _participationsParAction = {};
   bool _isLoading = true;
+    String? _etablissementName; // To store the establishment's name
+
 
   // Couleurs du design system
   final Color primaryColor = const Color(0xFF226D68);
@@ -96,11 +98,15 @@ class _HistoriquePageState extends State<HistoriquePage> {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Header(
+            pw.Header(
                 level: 0,
-                child: pw.Text('Historique des Actions',
-                    style: pw.TextStyle(
-                        fontSize: 24, fontWeight: pw.FontWeight.bold)),
+                child: pw.Text(
+                  'Historique des Actions - ${_etablissementName ?? 'Établissement'}',
+                  style: pw.TextStyle(
+                    fontSize: 24,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
               ),
               pw.SizedBox(height: 20),
               ..._historiqueActions.map((action) {

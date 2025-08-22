@@ -12,6 +12,104 @@ const List<String> tunisianGovernorates = [
   'Sousse', 'Tataouine', 'Tozeur', 'Tunis', 'Zaghouan'
 ];
 
+
+
+
+const List<String> establishmentCategories = [
+  'École',
+  'Institut',
+  'Association/ONG',
+  'Hôpital',
+  'Société privée'
+];
+// Map des universités tunisiennes avec leurs établissements
+const Map<String, List<String>> tunisianUniversities = {
+  'Université de Tunis': [
+    'FSHST Tunis',
+    'ISG Tunis',
+    'ISBAT Tunis',
+    'ISMT Tunis',
+    'ENS Tunis',
+  ],
+  'Université de Tunis El Manar': [
+    'FST Tunis',
+    'FMT Tunis',
+    'ENIT Tunis',
+    'IPEST Tunis',
+    'ISI Tunis',
+  ],
+  'Université de Carthage': [
+    'IHEC Carthage',
+    'ENAU ',
+    'ENICarthage',
+    'FSEG Nabeul',
+    'ISLT Tunis',
+  ],
+  'Université de La Manouba': [
+    'ISAMM Manouba',
+    'ENSI',
+    'ISSEPS',
+    'ISHTC',
+    'ESCT',
+  ],
+  'Université de Jendouba': [
+    'ISBA',
+    'FSEG Jendouba ',
+    'ISET Jendouba',
+    'ISEC Jendouba',
+    'ISP Jendouba',
+  ],
+  'Université de Bizerte': [
+    'FS Bizerte',
+    'ISBT',
+    'ENIB',
+    'IPA Bizerte',
+    'ISSATM  ',
+  ],
+  'Université de Sousse': [
+    'ENISO',
+    'ISITCom',
+    'Faculté de Médecine de Sousse',
+    'FM Sousse',
+    'ISSATS',
+  ],
+  'Université de Monastir': [
+    'FMD Monastir',
+    'FS Monastir',
+    'ENIM',
+    'ISIM',
+    'FP Monastir',
+  ],
+  'Université de Kairouan': [
+    'FL Kairouan',
+    'ISEA Kairouan',
+    'ISIG Kairouan',
+    'ISEAH Kairouan',
+    'ISSAT Kairouan',
+  ],
+  'Université de Sfax': [
+    'FS Sfax',
+    'FM Sfax',
+    'ENIS Sfax',
+    'ISBT Sfax',
+    'ISIMS Sfax',
+  ],
+  'Université de Gabès': [
+    'FSG Gabès ',
+    'ENIG Gabès',
+    'ISG Gabès',
+    'ISIMG Gabès',
+    'ISET Gabès',
+  ],
+  'Université de Gafsa': [
+    'FS Gafsa',
+    'ENI Gafsa',
+    'ISEAH Gafsa',
+    'ISIG Gafsa',
+    'ISSAT Gafsa',
+  ],
+};
+
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
 
@@ -33,8 +131,13 @@ class _RegisterPageState extends State<RegisterPage> {
   final regionController = TextEditingController();
   final rneController = TextEditingController();
   final codeFiscaleController = TextEditingController();
+  final numInscriptionController = TextEditingController();
 
   String selectedRole = 'etudiant';
+  String? selectedUniversity;
+  String? selectedInstitution;
+    String? selectedCategory;
+
 
   @override
   void initState() {
@@ -53,6 +156,7 @@ class _RegisterPageState extends State<RegisterPage> {
     regionController.dispose();
     rneController.dispose();
     codeFiscaleController.dispose();
+    numInscriptionController.dispose();
     super.dispose();
   }
 
@@ -138,12 +242,15 @@ class _RegisterPageState extends State<RegisterPage> {
           'nom': nomController.text.trim(),
           'prenom': prenomController.text.trim(),
           'numTel': telController.text.trim(),
+          'universite': selectedUniversity,
+          'etablissement': selectedInstitution,
+          'numInscription': numInscriptionController.text.trim(),
           'points': 0,
         };
       case 'etablissement':
         return {
           'nom': nomController.text.trim(),
-          'categorie': categorieController.text.trim(),
+        'categorie': selectedCategory, // Correction ici
           'region': regionController.text.trim(),
           'numTel': telController.text.trim(),
         };
@@ -211,6 +318,8 @@ class _RegisterPageState extends State<RegisterPage> {
     bool validator = false,
     IconData? icon,
     Widget? suffixIcon,
+    int? maxLength,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -218,6 +327,8 @@ class _RegisterPageState extends State<RegisterPage> {
         controller: controller,
         keyboardType: type,
         obscureText: obscure,
+        maxLength: maxLength,
+        inputFormatters: inputFormatters,
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: icon != null 
@@ -226,11 +337,13 @@ class _RegisterPageState extends State<RegisterPage> {
           suffixIcon: suffixIcon,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          counterText: '',
         ),
         validator: validator ? (value) {
           if (value == null || value.isEmpty) return 'Ce champ est requis';
           if (label.contains('Email') && !value.contains('@')) return 'Email invalide';
           if (label.contains('Mot de passe') && value.length < 6) return '6 caractères minimum';
+          if (label.contains('Numéro d\'inscription') && value.length != 8) return '8 chiffres requis';
           return null;
         } : null,
       ),
@@ -320,10 +433,102 @@ class _RegisterPageState extends State<RegisterPage> {
                             _buildTextField(prenomController, "Prénom", validator: true, icon: Icons.person_outline),
                           const SizedBox(height: 8),
                           _buildPhoneField(),
-                          if (selectedRole == 'etablissement') ...[
                           
-                                                    const SizedBox(height: 16),
-  _buildTextField(categorieController, "Catégorie", validator: true, icon: Icons.category),
+                          // Champs spécifiques pour les étudiants
+                          if (selectedRole == 'etudiant') ...[
+                            const SizedBox(height: 16),
+                            DropdownButtonFormField<String>(
+                              value: selectedUniversity,
+                              decoration: InputDecoration(
+                                labelText: "Université",
+                                prefixIcon: const Icon(Icons.school, color: Color(0xFF226D68)),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                              ),
+                              items: tunisianUniversities.keys.map((String university) {
+                                return DropdownMenuItem<String>(
+                                  value: university,
+                                  child: Text(university),
+                                );
+                              }).toList(),
+                              onChanged: (String? newValue) {
+                                setState(() {
+                                  selectedUniversity = newValue;
+                                  selectedInstitution = null; // Reset institution when university changes
+                                });
+                              },
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return 'Veuillez sélectionner une université';
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            DropdownButtonFormField<String>(
+                              value: selectedInstitution,
+                              decoration: InputDecoration(
+                                labelText: "Établissement",
+                                prefixIcon: const Icon(Icons.account_balance, color: Color(0xFF226D68)),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                              ),
+                              items: selectedUniversity != null 
+                                ? tunisianUniversities[selectedUniversity]!.map((String institution) {
+                                    return DropdownMenuItem<String>(
+                                      value: institution,
+                                      child: Text(institution),
+                                    );
+                                  }).toList()
+                                : [],
+                              onChanged: (String? newValue) {
+                                setState(() {
+                                  selectedInstitution = newValue;
+                                });
+                              },
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return 'Veuillez sélectionner un établissement';
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            _buildTextField(
+                              numInscriptionController, 
+                              "Numéro d'inscription", 
+                              validator: true, 
+                              icon: Icons.confirmation_number,
+                              type: TextInputType.number,
+                              maxLength: 8,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                            ),
+                          ],
+                          
+                          if (selectedRole == 'etablissement') ...[
+                            const SizedBox(height: 16),
+                   DropdownButtonFormField<String>(
+                              value: selectedCategory,
+                              decoration: InputDecoration(
+                                labelText: "Catégorie",
+                                prefixIcon: const Icon(Icons.category, color: Color(0xFF226D68)),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                              ),
+                              items: establishmentCategories.map((String category) {
+                                return DropdownMenuItem<String>(
+                                  value: category,
+                                  child: Text(category),
+                                );
+                              }).toList(),
+                              onChanged: (String? newValue) {
+                                setState(() {
+                                  selectedCategory = newValue;
+                                });
+                              },
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return 'Veuillez sélectionner une catégorie';
+                                return null;
+                              },
+                            ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
                               value: regionController.text.isEmpty ? null : regionController.text,
@@ -351,12 +556,11 @@ class _RegisterPageState extends State<RegisterPage> {
                             ),
                           ],
                           if (selectedRole == 'entreprise') ...[
-                                                     const SizedBox(height: 16),
-
+                            const SizedBox(height: 16),
                             _buildTextField(rneController, "RNE", validator: true, icon: Icons.business),
                             _buildTextField(codeFiscaleController, "Code fiscale", validator: true, icon: Icons.credit_card),
                           ],
-                                                    const SizedBox(height: 16),
+                          const SizedBox(height: 16),
 
                           _buildTextField(emailController, "Email", 
                             type: TextInputType.emailAddress, validator: true, icon: Icons.email),

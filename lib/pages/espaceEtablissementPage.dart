@@ -651,6 +651,9 @@ Widget _buildActionCard(
     ),
   );
 }
+
+
+
   void _navigateToSponsors() {
     Navigator.push(
       context,
@@ -667,6 +670,8 @@ Widget _buildActionCard(
       ),
     );
   }
+
+
 
   Widget _buildDashboardButton({
     required IconData icon,
@@ -1146,154 +1151,189 @@ class _SponsorsPageState extends State<SponsorsPage> {
     }).toList();
   }
 
-  Widget _buildSponsorCard(Map<String, dynamic> sponsor) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: widget.cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            spreadRadius: 0,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [widget.primaryColor, widget.accentColor],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
+Widget _buildSponsorCard(Map<String, dynamic> sponsor) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    decoration: BoxDecoration(
+      color: widget.cardColor,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.08),
+          blurRadius: 20,
+          spreadRadius: 0,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [widget.primaryColor, widget.accentColor],
                   ),
-                  child: Icon(Icons.business_rounded, color: Colors.white, size: 24),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        sponsor['nom'] ?? 'Nom non disponible',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: widget.textPrimary,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                child: Icon(Icons.business_rounded, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      sponsor['nom'] ?? 'Nom non disponible',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: widget.textPrimary,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        sponsor['secteurActivite'] ?? 'Secteur non spécifié',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: widget.textSecondary,
-                          fontWeight: FontWeight.w500,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Code Fiscale : ${sponsor['codeFiscale'] ?? 'Non spécifié'}",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: widget.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+
+                    // 🔥 Afficher email depuis collection users
+                    FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(sponsor['uid']) // uid de l'entreprise
+                          .get(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const SizedBox.shrink();
+                        }
+                        if (!snapshot.hasData || !snapshot.data!.exists) {
+                          return Text(
+                            "Email : Non spécifié",
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: widget.textSecondary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          );
+                        }
+                        final userData = snapshot.data!.data() as Map<String, dynamic>;
+                        final email = userData['email'] ?? 'Non spécifié';
+
+                        return Text(
+                          "Email : $email",
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: widget.textSecondary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: widget.accentColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Sponsor',
+                  style: TextStyle(
+                    color: widget.accentColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          if (sponsor['description'] != null &&
+              sponsor['description'].toString().isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: widget.backgroundColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                sponsor['description'],
+                style: TextStyle(
+                  fontSize: 14,
+                  color: widget.textPrimary,
+                  height: 1.4,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              if (sponsor['region'] != null)
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.location_on_rounded,
+                          color: widget.textSecondary, size: 16),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          sponsor['region'],
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: widget.textSecondary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: widget.accentColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    'Sponsor',
-                    style: TextStyle(
-                      color: widget.accentColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            
-            if (sponsor['description'] != null && sponsor['description'].toString().isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: widget.backgroundColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  sponsor['description'],
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: widget.textPrimary,
-                    height: 1.4,
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            
-            const SizedBox(height: 16),
-            
-            Row(
-              children: [
-                if (sponsor['region'] != null)
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Icon(Icons.location_on_rounded, 
-                             color: widget.textSecondary, size: 16),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            sponsor['region'],
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: widget.textSecondary,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+
+              if (sponsor['numTel'] != null)
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.phone_rounded,
+                          color: widget.textSecondary, size: 16),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          sponsor['numTel'],
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: widget.textSecondary,
                           ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                
-                if (sponsor['numTel'] != null)
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Icon(Icons.phone_rounded, 
-                             color: widget.textSecondary, size: 16),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            sponsor['numTel'],
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: widget.textSecondary,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
+                ),
+            ],
+          ),
+        ],
       ),
-    ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.1);
-  }
+    ),
+  ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.1);
+}
 
   Widget _buildSearchBar() {
     return Container(
