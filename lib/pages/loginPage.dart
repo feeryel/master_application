@@ -41,13 +41,34 @@ Future<void> loginUser() async {
 
     // Vérifier le statut de l'utilisateur
     final statut = userDoc['statut'];
+    final role = userDoc['role'];
+    
     if (statut == 'en attente') {
       throw Exception("Votre compte n'est pas encore activé. Veuillez patienter.");
     } else if (statut == 'refusé') {
-      throw Exception("Votre demande d'inscription a été refusée.");
+      // Récupérer la raison du refus depuis la collection spécifique
+      final roleDoc = await FirebaseFirestore.instance.collection('${role}s').doc(uid).get();
+      final rejectionReason = roleDoc['rejectionReason'] ?? userDoc['rejectionReason'] ?? "Raison non spécifiée";
+      
+      // Personnaliser le message en fonction de la raison
+      String errorMessage;
+      
+      final fieldName = role == 'entreprise' ? 'RNE' : 'numéro d\'inscription';
+      
+      if (rejectionReason.contains("8 chiffres")) {
+        errorMessage = "Votre demande a été refusée car votre $fieldName ne contient pas exactement 8 chiffres.";
+      } else if (rejectionReason.contains("commencer par 2")) {
+        errorMessage = "Votre demande a été refusée car votre $fieldName ne commence pas par le chiffre 2.";
+      } else if (rejectionReason.contains("invalide")) {
+        errorMessage = "Votre demande a été refusée car votre $fieldName est invalide. "
+                       "Il doit contenir exactement 8 chiffres et commencer par le chiffre 2.";
+      } else {
+        errorMessage = "Votre demande d'inscription a été refusée. Raison: $rejectionReason";
+      }
+      
+      throw Exception(errorMessage);
     }
 
-    final role = userDoc['role'];
     await FcmTokenHelper.saveToken();
 
     Widget nextPage;
@@ -72,8 +93,9 @@ Future<void> loginUser() async {
   } catch (e) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-      content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
+        content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
         backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 5),
       ),
     );
   } finally {
