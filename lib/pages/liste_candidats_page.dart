@@ -19,6 +19,7 @@ class ListeCandidatsPage extends StatefulWidget {
 
 class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
   final Map<String, Map<String, dynamic>> _studentsCache = {};
+  final Map<String, Map<String, dynamic>> _entreprisesCache = {};
   final ScrollController _scrollController = ScrollController();
   List<DocumentSnapshot> _loadedPostulations = [];
   bool _isLoading = true;
@@ -26,22 +27,31 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
   DocumentSnapshot? _lastDocument;
   String? _errorMessage;
   String _filterStatut = 'tous';
+  final Color primaryColor = const Color(0xFF226D68);
 
   Color _getStatusColor(String? statut) {
     switch (statut?.toLowerCase()) {
-      case 'accepté': return Colors.green;
-      case 'refusé': return Colors.red;
-      case 'annulée': return Colors.grey;
-      default: return Colors.orange;
+      case 'accepté':
+        return Colors.green;
+      case 'refusé':
+        return Colors.red;
+      case 'annulée':
+        return Colors.grey;
+      default:
+        return Colors.orange;
     }
   }
 
   IconData _getStatusIcon(String? statut) {
     switch (statut?.toLowerCase()) {
-      case 'accepté': return Icons.check_circle;
-      case 'refusé': return Icons.cancel;
-      case 'annulée': return Icons.block;
-      default: return Icons.access_time;
+      case 'accepté':
+        return Icons.check_circle;
+      case 'refusé':
+        return Icons.cancel;
+      case 'annulée':
+        return Icons.block;
+      default:
+        return Icons.access_time;
     }
   }
 
@@ -80,7 +90,7 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     );
   }
 
- @override
+  @override
   void initState() {
     super.initState();
     _scrollController.addListener(_scrollListener);
@@ -92,6 +102,7 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _studentsCache.clear();
+    _entreprisesCache.clear();
     super.dispose();
   }
 
@@ -220,33 +231,59 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     }
   }
 
-Future<void> _updateStatut(String postulationId, String newStatut, String studentId) async {
-  try {
-    await FirebaseFirestore.instance
-        .collection('postulations')
-        .doc(postulationId)
-        .update({
-          'statut': newStatut,
-          'traiteLe': Timestamp.now(),
-        });
+  Future<Map<String, dynamic>> _getEntrepriseData(String entrepriseId) async {
+    if (_entreprisesCache.containsKey(entrepriseId)) {
+      return _entreprisesCache[entrepriseId]!;
+    }
 
-    if (newStatut == 'accepté') {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('entreprises')
+          .doc(entrepriseId)
+          .get();
+
+      if (doc.exists) {
+        final entrepriseData = doc.data()!;
+        _entreprisesCache[entrepriseId] = entrepriseData;
+        return entrepriseData;
+      }
+      return {};
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${e.toString()}')),
+        );
+      }
+      return {};
+    }
+  }
+
+  Future<void> _updateStatut(String postulationId, String newStatut, String studentId) async {
+    try {
       await FirebaseFirestore.instance
           .collection('postulations')
           .doc(postulationId)
           .update({
-            'pointsAttributed': false,
+            'statut': newStatut,
+            'traiteLe': Timestamp.now(),
           });
-    }
 
-    // Now we have studentId passed in, so no error
-    await _sendStudentNotification(
-      studentId: studentId,
-      actionId: widget.idAction,
-      newStatus: newStatut,
-    );
+      if (newStatut == 'accepté') {
+        await FirebaseFirestore.instance
+            .collection('postulations')
+            .doc(postulationId)
+            .update({
+              'pointsAttributed': false,
+            });
+      }
 
-    if (!mounted) return;
+      await _sendStudentNotification(
+        studentId: studentId,
+        actionId: widget.idAction,
+        newStatus: newStatut,
+      );
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Statut mis à jour !"),
@@ -254,43 +291,37 @@ Future<void> _updateStatut(String postulationId, String newStatut, String studen
         ),
       );
       await _refreshData();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
-   catch (e) {
- if (!mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text("Erreur: ${e.toString().replaceAll('Exception: ', '')}"),
-      backgroundColor: Colors.red,
-    ),
-  );
   }
-}
 
-
-
-Future<void> _addPointsToStudent(String studentId, String postulationId) async {
+  Future<void> _addPointsToStudent(String studentId, String postulationId) async {
     try {
-      // Vérifier si les points ont déjà été attribués
       final postulationDoc = await FirebaseFirestore.instance
           .collection('postulations')
           .doc(postulationId)
           .get();
-      
-       if (postulationDoc.data()?['statut'] != 'accepté' || 
+
+      if (postulationDoc.data()?['statut'] != 'accepté' ||
           postulationDoc.data()?['participationConfirmee'] != true ||
           postulationDoc.data()?['pointsAttributed'] == true) {
-        return;// Les points ont déjà été attribués
+        return;
       }
 
-      // Récupérer les points de l'action
       final actionDoc = await FirebaseFirestore.instance
           .collection('actions_volontariat')
           .doc(widget.idAction)
           .get();
-      
+
       final points = actionDoc.data()?['points'] ?? 10;
 
-      // Mettre à jour les points de l'étudiant
       await FirebaseFirestore.instance
           .collection('etudiants')
           .doc(studentId)
@@ -298,7 +329,6 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
             'points': FieldValue.increment(points),
           });
 
-      // Marquer que les points ont été attribués
       await FirebaseFirestore.instance
           .collection('postulations')
           .doc(postulationId)
@@ -320,7 +350,7 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
           .collection('actions_volontariat')
           .doc(actionId)
           .get();
-      
+
       final titre = actionDoc.data()?['titre'] ?? 'Action inconnue';
 
       await NotificationService.sendNotificationToStudent(
@@ -335,10 +365,14 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
 
   String _getStatusText(String? statut) {
     switch (statut?.toLowerCase()) {
-      case 'accepté': return 'acceptée';
-      case 'refusé': return 'refusée';
-      case 'annulée': return 'annulée';
-      default: return 'en attente';
+      case 'accepté':
+        return 'acceptée';
+      case 'refusé':
+        return 'refusée';
+      case 'annulée':
+        return 'annulée';
+      default:
+        return 'en attente';
     }
   }
 
@@ -407,7 +441,7 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
               label: Text(filter['label']!),
               selected: _filterStatut == filter['value'],
               onSelected: (selected) => _changeFilter(filter['value']!),
-              selectedColor: const Color(0xFF226D68),
+              selectedColor: primaryColor,
               labelStyle: TextStyle(
                 color: _filterStatut == filter['value'] ? Colors.white : Colors.black,
               ),
@@ -427,7 +461,7 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
       builder: (context, snapshot) {
         final student = snapshot.data ?? {};
         final nomComplet = '${student['prenom']} ${student['nom']}'.trim();
-        final initials = nomComplet.isNotEmpty 
+        final initials = nomComplet.isNotEmpty
             ? nomComplet.split(' ').map((n) => n[0]).take(2).join()
             : '?';
 
@@ -445,7 +479,7 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: const Color(0xFF226D68), // Couleur fixe pour l'avatar
+                    backgroundColor: primaryColor,
                     child: Text(
                       initials,
                       style: const TextStyle(
@@ -486,6 +520,74 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
     );
   }
 
+  Widget _buildSponsorCard(DocumentSnapshot contribution) {
+    final data = contribution.data() as Map<String, dynamic>;
+
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _getEntrepriseData(data['entrepriseId']),
+      builder: (context, snapshot) {
+        final entreprise = snapshot.data ?? {};
+        final nomEntreprise = entreprise['nom']?.toString() ?? 'Entreprise inconnue';
+        final initials = nomEntreprise.isNotEmpty
+            ? nomEntreprise.split(' ').map((n) => n[0]).take(2).join()
+            : '?';
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: primaryColor,
+                  child: Text(
+                    initials,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nomEntreprise,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        data['type'] == 'argent'
+                            ? 'Montant: ${data['details']} TND'
+                            : 'Matériel: ${data['details']}',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  data['type'] == 'argent' ? Icons.monetization_on : Icons.inventory,
+                  color: primaryColor,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showDetailsDialog(
     DocumentSnapshot postulation,
     Map<String, dynamic> studentData,
@@ -519,7 +621,7 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
                         width: 60,
                         height: 60,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF226D68), // Couleur fixe pour l'avatar
+                          color: primaryColor,
                           shape: BoxShape.circle,
                         ),
                         child: Center(
@@ -563,7 +665,6 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
                   _buildDetailItem(Icons.account_circle_outlined, 'Prenom', studentData['prenom']?.toString() ?? postulationData['prenom']?.toString() ?? 'Non renseigné'),
                   _buildDetailItem(Icons.email, 'Email', studentData['email']?.toString() ?? postulationData['email']?.toString() ?? 'Non renseigné'),
                   _buildDetailItem(Icons.phone, 'Téléphone', studentData['numTel']?.toString() ?? 'Non renseigné'),
-                
                   const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -603,10 +704,10 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
                       ),
                       if (statut != 'accepté' && statut != 'annulée')
                         ElevatedButton(
-                         onPressed: () {
-    Navigator.pop(context);
-    _updateStatut(postulationId, 'accepté', postulationData['idEtudiant']);
-  },
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _updateStatut(postulationId, 'accepté', postulationData['idEtudiant']);
+                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
@@ -618,10 +719,10 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
                         ),
                       if (statut != 'refusé' && statut != 'annulée')
                         ElevatedButton(
-                        onPressed: () {
-    Navigator.pop(context);
-    _updateStatut(postulationId, 'refusé', postulationData['idEtudiant']);
-  },
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _updateStatut(postulationId, 'refusé', postulationData['idEtudiant']);
+                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.red,
                             foregroundColor: Colors.white,
@@ -647,12 +748,13 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          "Candidats - ${widget.titreAction}",
+          "Candidats & Sponsors - ${widget.titreAction}",
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: const Color(0xFF226D68),
+        backgroundColor: primaryColor,
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildFilterChips(),
           Expanded(
@@ -660,24 +762,86 @@ Future<void> _addPointsToStudent(String studentId, String postulationId) async {
                 ? const Center(child: CircularProgressIndicator())
                 : _errorMessage != null
                     ? Center(child: Text(_errorMessage!))
-                    : _loadedPostulations.isEmpty
-                        ? const Center(child: Text("Aucun candidat"))
-                        : RefreshIndicator(
-                            onRefresh: _refreshData,
-                            child: ListView.builder(
-                              controller: _scrollController,
-                              itemCount: _loadedPostulations.length + (_isLoadingMore ? 1 : 0),
-                              itemBuilder: (context, index) {
-                                if (index >= _loadedPostulations.length) {
-                                  return const Padding(
+                    : RefreshIndicator(
+                        onRefresh: _refreshData,
+                        child: ListView(
+                          controller: _scrollController,
+                          children: [
+                            // Titre pour la liste des candidats
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                              child: Text(
+                                'Liste des candidats pour cette action',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: primaryColor,
+                                ),
+                              ),
+                            ),
+                            // Liste des candidats
+                            _loadedPostulations.isEmpty && !_isLoadingMore
+                                ? const Padding(
                                     padding: EdgeInsets.all(16),
-                                    child: Center(child: CircularProgressIndicator()),
-                                  );
+                                    child: Center(child: Text("Aucun candidat")),
+                                  )
+                                : ListView.builder(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    itemCount: _loadedPostulations.length + (_isLoadingMore ? 1 : 0),
+                                    itemBuilder: (context, index) {
+                                      if (index >= _loadedPostulations.length) {
+                                        return const Padding(
+                                          padding: EdgeInsets.all(16),
+                                          child: Center(child: CircularProgressIndicator()),
+                                        );
+                                      }
+                                      return _buildCandidatCard(_loadedPostulations[index]);
+                                    },
+                                  ),
+                            // Titre pour la liste des sponsors
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                              child: Text(
+                                'Nos Sponsors pour cette action',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: primaryColor,
+                                ),
+                              ),
+                            ),
+                            // Liste des sponsors
+                            FutureBuilder<QuerySnapshot>(
+                              future: FirebaseFirestore.instance
+                                  .collection('actions_volontariat')
+                                  .doc(widget.idAction)
+                                  .collection('contributions')
+                                  .get(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return const Center(child: CircularProgressIndicator());
                                 }
-                                return _buildCandidatCard(_loadedPostulations[index]);
+                                if (snapshot.hasError) {
+                                  return Center(child: Text('Erreur: ${snapshot.error}'));
+                                }
+                                final contributions = snapshot.data?.docs ?? [];
+                                if (contributions.isEmpty) {
+                                  return const Center(child: Text('Aucun sponsor pour cette action'));
+                                }
+                                return ListView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: contributions.length,
+                                  itemBuilder: (context, index) {
+                                    return _buildSponsorCard(contributions[index]);
+                                  },
+                                );
                               },
                             ),
-                          ),
+                          ],
+                        ),
+                      ),
           ),
         ],
       ),
