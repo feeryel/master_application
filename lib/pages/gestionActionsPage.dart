@@ -196,48 +196,104 @@ _points.text = (data['points'] ?? 10).toString();
     });
   }
 
-  Future<void> _confirmDelete(String id) async {
-    bool confirm = await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: const Text('Confirmer la suppression',
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Voulez-vous vraiment supprimer cette action ?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler',
-                style: TextStyle(color: Color(0xFF226D68))),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer',
-                style: TextStyle(color: Colors.white)),
-          ),
-        ],
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
+Future<void> _confirmDelete(String id) async {
+  bool confirm = await showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: Colors.white,
+      title: const Text('Confirmer la suppression',
+          style: TextStyle(fontWeight: FontWeight.bold)),
+      content: const Text('Voulez-vous vraiment supprimer cette action ? Toutes les candidatures, participations et points attribués seront également supprimés.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Annuler',
+              style: TextStyle(color: Color(0xFF226D68))),
         ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+          ),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Supprimer',
+              style: TextStyle(color: Colors.white)),
+        ),
+      ],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15),
       ),
-    ) ?? false;
-    if (confirm) {
-      try {
-        await FirebaseFirestore.instance
-            .collection("actions_volontariat")
-            .doc(id)
-            .delete();
-        if (!mounted) return;
-        _showSuccessAlert('Action supprimée');
-      } catch (e) {
-        if (!mounted) return;
-        _showErrorAlert("Erreur: ${e.toString()}");
+    ),
+  ) ?? false;
+  
+  if (confirm) {
+    try {
+      // Récupérer le nombre de points de l'action avant suppression
+      final actionDoc = await FirebaseFirestore.instance
+          .collection("actions_volontariat")
+          .doc(id)
+          .get();
+      
+      final points = actionDoc.data()?['points'] ?? 0;
+      
+      // Récupérer toutes les candidatures avec participation confirmée
+      final postulationsSnapshot = await FirebaseFirestore.instance
+          .collection("postulations")
+          .where("idAction", isEqualTo: id)
+          .where("participationConfirmee", isEqualTo: true)
+          .where("pointsAttributed", isEqualTo: true)
+          .get();
+      
+      // Retirer les points pour chaque étudiant qui les a reçus
+      for (final doc in postulationsSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final studentId = data['idEtudiant'];
+        
+        if (studentId != null) {
+          await FirebaseFirestore.instance
+              .collection('etudiants')
+              .doc(studentId)
+              .update({
+                'points': FieldValue.increment(-points),
+              });
+        }
       }
+      
+      // Supprimer toutes les candidatures associées
+      final allPostulationsSnapshot = await FirebaseFirestore.instance
+          .collection("postulations")
+          .where("idAction", isEqualTo: id)
+          .get();
+      
+      for (final doc in allPostulationsSnapshot.docs) {
+        await doc.reference.delete();
+      }
+      
+      // Supprimer toutes les contributions/sponsors associées
+      final contributionsSnapshot = await FirebaseFirestore.instance
+          .collection("actions_volontariat")
+          .doc(id)
+          .collection("contributions")
+          .get();
+      
+      for (final doc in contributionsSnapshot.docs) {
+        await doc.reference.delete();
+      }
+      
+      // Finalement, supprimer l'action elle-même
+      await FirebaseFirestore.instance
+          .collection("actions_volontariat")
+          .doc(id)
+          .delete();
+          
+      if (!mounted) return;
+      _showSuccessAlert('Action retirée avec succès');
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorAlert("Erreur lors de la suppression: ${e.toString()}");
     }
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
