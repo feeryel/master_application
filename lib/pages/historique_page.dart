@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:master_application/pages/espaceEtablissementPage.dart';
-import 'package:master_application/pages/loginPage.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -18,8 +17,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
   List<DocumentSnapshot> _historiqueActions = [];
   Map<String, List<DocumentSnapshot>> _participationsParAction = {};
   bool _isLoading = true;
-    String? _etablissementName; // To store the establishment's name
-
+  String? _etablissementName;
 
   // Couleurs du design system
   final Color primaryColor = const Color(0xFF226D68);
@@ -35,12 +33,45 @@ class _HistoriquePageState extends State<HistoriquePage> {
   @override
   void initState() {
     super.initState();
-    _loadHistorique();
+    _initData();
   }
 
+  // Initialisation : charger le nom de l'établissement + historique
+  Future<void> _initData() async {
+    setState(() => _isLoading = true);
+
+    await _loadEtablissementName();
+    await _loadHistorique();
+
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  // Charger le nom de l'établissement
+  Future<void> _loadEtablissementName() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final query = await FirebaseFirestore.instance
+          .collection('etablissements')
+          .where('uid', isEqualTo: user.uid)
+          .limit(1)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        _etablissementName = query.docs.first['nom'];
+        print("✅ Nom établissement: $_etablissementName");
+      } else {
+        print("⚠️ Aucun établissement trouvé pour cet UID");
+      }
+    } catch (e) {
+      print("❌ Erreur chargement établissement: $e");
+    }
+  }
+
+  // Charger l'historique des actions
   Future<void> _loadHistorique() async {
     try {
-      setState(() => _isLoading = true);
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
@@ -52,9 +83,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
           .get();
 
       if (!mounted) return;
-      setState(() {
-        _historiqueActions = actionsQuery.docs;
-      });
+      _historiqueActions = actionsQuery.docs;
 
       for (var action in _historiqueActions) {
         final participationsQuery = await FirebaseFirestore.instance
@@ -64,9 +93,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
             .get();
 
         if (!mounted) return;
-        setState(() {
-          _participationsParAction[action.id] = participationsQuery.docs;
-        });
+        _participationsParAction[action.id] = participationsQuery.docs;
       }
     } catch (e) {
       if (!mounted) return;
@@ -81,13 +108,10 @@ class _HistoriquePageState extends State<HistoriquePage> {
           margin: const EdgeInsets.all(16),
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 
+  // Génération PDF
   Future<void> _generatePdf() async {
     final pdf = pw.Document();
 
@@ -98,7 +122,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-            pw.Header(
+              pw.Header(
                 level: 0,
                 child: pw.Text(
                   'Historique des Actions - ${_etablissementName ?? 'Établissement'}',
@@ -112,7 +136,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
               ..._historiqueActions.map((action) {
                 final data = action.data() as Map<String, dynamic>;
                 final participations = _participationsParAction[action.id] ?? [];
-                
+
                 return pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
@@ -153,6 +177,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
     );
   }
 
+  // Widgets pour l'affichage
   Widget _buildParticipantList(List<DocumentSnapshot> participations) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -310,7 +335,9 @@ class _HistoriquePageState extends State<HistoriquePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Historique des Actions',
+                  _etablissementName != null
+                      ? 'Historique des Actions - $_etablissementName'
+                      : 'Historique des Actions',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -358,7 +385,9 @@ class _HistoriquePageState extends State<HistoriquePage> {
         actions: [
           IconButton(
             icon: Icon(Icons.print, color: primaryColor),
-            onPressed: _historiqueActions.isEmpty ? null : _generatePdf,
+            onPressed: (_historiqueActions.isEmpty || _etablissementName == null)
+                ? null
+                : _generatePdf,
             tooltip: 'Imprimer PDF',
           ),
           Container(
@@ -369,7 +398,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
             ),
             child: IconButton(
               icon: Icon(Icons.refresh_rounded, color: primaryColor),
-              onPressed: _loadHistorique,
+              onPressed: _initData,
               tooltip: 'Actualiser',
             ),
           ),
@@ -399,7 +428,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
           : RefreshIndicator(
               color: primaryColor,
               backgroundColor: cardColor,
-              onRefresh: _loadHistorique,
+              onRefresh: _initData,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(20),
@@ -410,12 +439,9 @@ class _HistoriquePageState extends State<HistoriquePage> {
                     if (_historiqueActions.isEmpty)
                       _buildEmptyState()
                     else
-                      ..._historiqueActions.map((action) => 
-                        _buildActionCard(
-                          action, 
-                          _participationsParAction[action.id] ?? []
-                        )
-                      ),
+                      ..._historiqueActions.map((action) =>
+                          _buildActionCard(
+                              action, _participationsParAction[action.id] ?? [])),
                   ],
                 ),
               ),

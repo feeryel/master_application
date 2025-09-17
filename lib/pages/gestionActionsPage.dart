@@ -584,10 +584,10 @@ Widget _buildActionItem(DocumentSnapshot action, Map<String, dynamic> data) {
                       value: 'edit',
                       child: Text('Modifier'),
                     ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Supprimer', style: TextStyle(color: Colors.red)),
-                    ),
+                    // const PopupMenuItem(
+                    //   value: 'delete',
+                    //   child: Text('Supprimer', style: TextStyle(color: Colors.red)),
+                    // ),
                   ],
                   onSelected: (value) {
                     if (value == 'edit') {
