@@ -187,91 +187,176 @@ List<Map<String, dynamic>> _getEarnedLabels(int points) {
     }
   }
 
-  void _setupNotifications() {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+void _setupNotifications() {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return;
 
-    _candidatureSub = FirebaseFirestore.instance
-        .collection('postulations')
-        .where('idEtudiant', isEqualTo: uid)
-        .snapshots()
-        .listen((snapshot) async {
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.modified) {
-          final data = change.doc.data() as Map<String, dynamic>? ?? {};
-          if (data.isEmpty) continue;
+  // Map pour suivre l'état précédent de chaque postulation
+  final Map<String, Map<String, dynamic>> _previousStates = {};
 
-          final newStatut = data['statut']?.toString() ?? '';
-          if (newStatut == 'accepté') {
-            await _addPointsToStudent(change.doc.id, data['idAction']);
-            
-            NotificationService.showLocalNotification(
-              title: 'Félicitations',
-              body: '🎉 Bravo ! Ta candidature a été acceptée 🎉',
-            );
-          } else if (newStatut == 'refusé') {
-            NotificationService.showLocalNotification(
-              title: 'Candidature refusée',
-              body: '❌ Votre candidature a été refusée.',
-            );
-          }
-        }
-      }
-    });
-  }
+  _candidatureSub = FirebaseFirestore.instance
+      .collection('postulations')
+      .where('idEtudiant', isEqualTo: uid)
+      .snapshots()
+      .listen((snapshot) async {
+    for (var change in snapshot.docChanges) {
+      if (change.type == DocumentChangeType.modified) {
+        final data = change.doc.data() as Map<String, dynamic>? ?? {};
+        if (data.isEmpty) continue;
 
-  Future<void> _addPointsToStudent(String postulationId, String actionId) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+        final docId = change.doc.id;
+        final newStatut = data['statut']?.toString() ?? '';
+        final newParticipationConfirmee = data['participationConfirmee'] ?? false;
 
-      final postulationDoc = await FirebaseFirestore.instance
-          .collection('postulations')
-          .doc(postulationId)
-          .get();
+        // Récupérer l'état précédent
+        final previousState = _previousStates[docId] ?? {
+          'statut': '',
+          'participationConfirmee': false
+        };
 
-      if (postulationDoc.data()?['participationConfirmee'] != true) {
-        debugPrint('Participation non confirmée - points non attribués');
-        return;
-      }
+        final oldStatut = previousState['statut'] ?? '';
+        final oldParticipationConfirmee = previousState['participationConfirmee'] ?? false;
 
-      if (postulationDoc.data()?['pointsAttributed'] == true) {
-        debugPrint('Points déjà attribués pour cette postulation');
-        return;
-      }
+        debugPrint('📱 Notification check pour $docId:');
+        debugPrint('   Statut: $oldStatut -> $newStatut');
+        debugPrint('   Participation: $oldParticipationConfirmee -> $newParticipationConfirmee');
 
-      final actionDoc = await FirebaseFirestore.instance
-          .collection('actions_volontariat')
-          .doc(actionId)
-          .get();
-      
-      final points = actionDoc.data()?['points'] ?? 10;
-
-      await FirebaseFirestore.instance
-          .collection('etudiants')
-          .doc(user.uid)
-          .update({
-            'points': FieldValue.increment(points),
-          });
-
-      await FirebaseFirestore.instance
-          .collection('postulations')
-          .doc(postulationId)
-          .update({
-            'pointsAttributed': true,
-          });
-
-      final updatedDoc = await FirebaseFirestore.instance
-          .collection('etudiants')
-          .doc(user.uid)
-          .get();
+        // ✅ NOTIFICATION POUR ACCEPTATION
+        if (newStatut == 'accepté' && oldStatut != 'accepté') {
+          debugPrint('🎉 Candidature acceptée');
           
-      setState(() => _etudiantData = updatedDoc.data());
-    } catch (e) {
-      debugPrint('Erreur lors de l\'ajout des points: $e');
-    }
-  }
+          NotificationService.showLocalNotification(
+            title: 'Félicitations 🎉',
+            body: 'Votre candidature a été acceptée !',
+          );
+        } 
+        // ✅ NOTIFICATION POUR REFUS
+        else if (newStatut == 'refusé' && oldStatut != 'refusé') {
+          NotificationService.showLocalNotification(
+            title: 'Candidature refusée',
+            body: 'Votre candidature a été refusée.',
+          );
+        }
 
+        // ✅ NOTIFICATION POUR CONFIRMATION DE PARTICIPATION
+        if (newParticipationConfirmee == true && oldParticipationConfirmee == false) {
+          debugPrint('✅ Participation confirmée');
+          
+          NotificationService.showLocalNotification(
+            title: 'Participation confirmée ! ✅',
+            body: 'Votre participation a été confirmée par l\'établissement et les points sont attribués .',
+          );
+
+          // Attribuer les points
+          await _addPointsToStudent(docId, data['idAction']);
+        }
+
+        // Mettre à jour l'état précédent
+        _previousStates[docId] = {
+          'statut': newStatut,
+          'participationConfirmee': newParticipationConfirmee
+        };
+      }
+      
+      // Gérer les nouveaux documents
+      else if (change.type == DocumentChangeType.added) {
+        final data = change.doc.data() as Map<String, dynamic>? ?? {};
+        final docId = change.doc.id;
+        
+        _previousStates[docId] = {
+          'statut': data['statut']?.toString() ?? '',
+          'participationConfirmee': data['participationConfirmee'] ?? false
+        };
+      }
+    }
+  });
+}
+
+
+ Future<void> _addPointsToStudent(String postulationId, String actionId) async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final postulationDoc = await FirebaseFirestore.instance
+        .collection('postulations')
+        .doc(postulationId)
+        .get();
+
+    if (!postulationDoc.exists) {
+      debugPrint('Postulation non trouvée');
+      return;
+    }
+
+    final postulationData = postulationDoc.data()!;
+
+    // Garder la vérification de participation confirmée
+    if (postulationData['participationConfirmee'] != true) {
+      debugPrint('Participation non confirmée - points non attribués');
+      return;
+    }
+
+    // Vérifier si les points ont déjà été attribués
+    if (postulationData['pointsAttributed'] == true) {
+      debugPrint('Points déjà attribués pour cette postulation');
+      return;
+    }
+
+    // Récupérer les points de l'action
+    final actionDoc = await FirebaseFirestore.instance
+        .collection('actions_volontariat')
+        .doc(actionId)
+        .get();
+    
+    if (!actionDoc.exists) {
+      debugPrint('Action non trouvée');
+      return;
+    }
+
+    final points = actionDoc.data()?['points'] ?? 10;
+
+    // Mettre à jour la postulation et les points
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      transaction.update(
+        FirebaseFirestore.instance.collection('postulations').doc(postulationId),
+        {
+          'pointsAttributed': true,
+        },
+      );
+
+      transaction.update(
+        FirebaseFirestore.instance.collection('etudiants').doc(user.uid),
+        {'points': FieldValue.increment(points)},
+      );
+    });
+
+    // Mettre à jour les données locales
+    final updatedDoc = await FirebaseFirestore.instance
+        .collection('etudiants')
+        .doc(user.uid)
+        .get();
+        
+    setState(() => _etudiantData = updatedDoc.data());
+
+    // ✅ AJOUTER LA NOTIFICATION DES POINTS ICI
+    try {
+      await NotificationService.sendNotificationToStudent(
+        studentId: user.uid,
+        title: 'Points attribués ! 🎉',
+        body: 'Félicitations ! Vous avez reçu $points points pour votre participation.',
+      );
+      
+      debugPrint('✅ Notification points envoyée à l\'étudiant ${user.uid}');
+    } catch (notificationError) {
+      debugPrint('❌ Erreur notification points: $notificationError');
+    }
+
+    debugPrint('✅ $points points attribués avec succès à l\'étudiant ${user.uid}');
+
+  } catch (e) {
+    debugPrint('❌ Erreur lors de l\'ajout des points: $e');
+  }
+}
   Future<void> postuler(String idAction) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -448,7 +533,7 @@ List<Map<String, dynamic>> _getEarnedLabels(int points) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Bonjour, $prenom',
+                    'Bienvenue, $prenom',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -456,7 +541,7 @@ List<Map<String, dynamic>> _getEarnedLabels(int points) {
                     ),
                   ),
                   Text(
-                    'Bienvenue dans votre espace',
+                    'Prêt(e) à commencer l’aventure ? 🚀 ',
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.grey[600],

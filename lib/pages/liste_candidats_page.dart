@@ -452,92 +452,52 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
     );
   }
 
-  Widget _buildCandidatCard(DocumentSnapshot postulation) {
-    final data = postulation.data() as Map<String, dynamic>;
-    final date = (data['createdAt'] as Timestamp).toDate();
+Widget _buildCandidatCard(DocumentSnapshot postulation) {
+  final data = postulation.data() as Map<String, dynamic>;
+  final date = (data['createdAt'] as Timestamp).toDate();
 
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _getStudentData(data['idEtudiant']),
-      builder: (context, snapshot) {
-        final student = snapshot.data ?? {};
-        final nomComplet = '${student['prenom']} ${student['nom']}'.trim();
-        final initials = nomComplet.isNotEmpty
-            ? nomComplet.split(' ').map((n) => n[0]).take(2).join()
-            : '?';
+  return FutureBuilder<Map<String, dynamic>>(
+    future: _getStudentData(data['idEtudiant']),
+    builder: (context, snapshot) {
+      final student = snapshot.data ?? {};
+      final nomComplet = '${student['prenom']} ${student['nom']}'.trim();
+      
+      // CORRECTION: Méthode sécurisée pour les initiales
+      String getInitialesSecurisees(String nom) {
+        if (nom.isEmpty) return '?';
+        
+        final parts = nom.trim().split(' ').where((part) => part.isNotEmpty).toList();
+        if (parts.length >= 2) {
+          // Prendre la première lettre du prénom et du nom
+          final prenom = parts[0];
+          final nomDeFamille = parts[1];
+          if (prenom.isNotEmpty && nomDeFamille.isNotEmpty) {
+            return '${prenom[0]}${nomDeFamille[0]}'.toUpperCase();
+          } else if (prenom.isNotEmpty && prenom.length >= 2) {
+            return prenom.substring(0, 2).toUpperCase();
+          }
+        } else if (nom.length >= 2) {
+          // Si un seul mot, prendre les deux premières lettres
+          return nom.substring(0, 2).toUpperCase();
+        } else if (nom.isNotEmpty) {
+          // Si un seul caractère
+          return nom[0].toUpperCase();
+        }
+        
+        return '?'; // Valeur par défaut
+      }
+      
+      final initials = getInitialesSecurisees(nomComplet);
 
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _showDetailsDialog(postulation, student, data, nomComplet, initials),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: primaryColor,
-                    child: Text(
-                      initials,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          nomComplet.isNotEmpty ? nomComplet : 'Candidat inconnu',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          DateFormat('dd/MM/yyyy à HH:mm').format(date),
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _buildStatutWidget(data['statut']),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSponsorCard(DocumentSnapshot contribution) {
-    final data = contribution.data() as Map<String, dynamic>;
-
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _getEntrepriseData(data['entrepriseId']),
-      builder: (context, snapshot) {
-        final entreprise = snapshot.data ?? {};
-        final nomEntreprise = entreprise['nom']?.toString() ?? 'Entreprise inconnue';
-        final initials = nomEntreprise.isNotEmpty
-            ? nomEntreprise.split(' ').map((n) => n[0]).take(2).join()
-            : '?';
-
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+      return Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _showDetailsDialog(postulation, student, data, nomComplet, initials),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -558,16 +518,14 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        nomEntreprise,
+                        nomComplet.isNotEmpty ? nomComplet : 'Candidat inconnu',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        data['type'] == 'argent'
-                            ? 'Montant: ${data['details']} TND'
-                            : 'Matériel: ${data['details']}',
+                        DateFormat('dd/MM/yyyy à HH:mm').format(date),
                         style: TextStyle(
                           color: Colors.grey[600],
                           fontSize: 12,
@@ -576,17 +534,108 @@ class _ListeCandidatsPageState extends State<ListeCandidatsPage> {
                     ],
                   ),
                 ),
-                Icon(
-                  data['type'] == 'argent' ? Icons.monetization_on : Icons.inventory,
-                  color: primaryColor,
-                ),
+                _buildStatutWidget(data['statut']),
               ],
             ),
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
+Widget _buildSponsorCard(DocumentSnapshot contribution) {
+  final data = contribution.data() as Map<String, dynamic>;
+
+  return FutureBuilder<Map<String, dynamic>>(
+    future: _getEntrepriseData(data['entrepriseId']),
+    builder: (context, snapshot) {
+      final entreprise = snapshot.data ?? {};
+      final nomEntreprise = entreprise['nom']?.toString() ?? 'Entreprise inconnue';
+      
+      // CORRECTION: Méthode sécurisée pour les initiales
+      String getInitialesSecurisees(String nom) {
+        if (nom.isEmpty) return '?';
+        
+        final parts = nom.trim().split(' ').where((part) => part.isNotEmpty).toList();
+        if (parts.length >= 2) {
+          // Prendre la première lettre du premier et deuxième mot
+          final premierMot = parts[0];
+          final deuxiemeMot = parts[1];
+          if (premierMot.isNotEmpty && deuxiemeMot.isNotEmpty) {
+            return '${premierMot[0]}${deuxiemeMot[0]}'.toUpperCase();
+          } else if (premierMot.isNotEmpty && premierMot.length >= 2) {
+            return premierMot.substring(0, 2).toUpperCase();
+          }
+        } else if (nom.length >= 2) {
+          // Si un seul mot, prendre les deux premières lettres
+          return nom.substring(0, 2).toUpperCase();
+        } else if (nom.isNotEmpty) {
+          // Si un seul caractère
+          return nom[0].toUpperCase();
+        }
+        
+        return '?'; // Valeur par défaut
+      }
+      
+      final initials = getInitialesSecurisees(nomEntreprise);
+
+      return Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: primaryColor,
+                child: Text(
+                  initials,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      nomEntreprise,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      data['type'] == 'argent'
+                          ? 'Montant: ${data['details']} TND'
+                          : 'Matériel: ${data['details']}',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                data['type'] == 'argent' ? Icons.monetization_on : Icons.inventory,
+                color: primaryColor,
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+
 
   void _showDetailsDialog(
     DocumentSnapshot postulation,
