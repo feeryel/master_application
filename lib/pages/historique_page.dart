@@ -93,7 +93,14 @@ class _HistoriquePageState extends State<HistoriquePage> {
             .get();
 
         if (!mounted) return;
-        _participationsParAction[action.id] = participationsQuery.docs;
+        
+        // Filtrer uniquement les participants avec participation confirmée (présents)
+        final participationsConfirmees = participationsQuery.docs.where((participation) {
+          final partData = participation.data() as Map<String, dynamic>;
+          return partData['participationConfirmee'] == true;
+        }).toList();
+
+        _participationsParAction[action.id] = participationsConfirmees;
       }
     } catch (e) {
       if (!mounted) return;
@@ -112,71 +119,168 @@ class _HistoriquePageState extends State<HistoriquePage> {
   }
 
   // Génération PDF
-  Future<void> _generatePdf() async {
-    final pdf = pw.Document();
+// Génération PDF
+Future<void> _generatePdf() async {
+  final pdf = pw.Document();
 
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Header(
-                level: 0,
-                child: pw.Text(
-                  'Historique des Actions - ${_etablissementName ?? 'Établissement'}',
+  pdf.addPage(
+    pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      build: (pw.Context context) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            // En-tête simple
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Historique des Actions',
+                      style: pw.TextStyle(
+                        fontSize: 20,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.blue800,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      _etablissementName ?? 'Établissement',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        color: PdfColors.grey600,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Text(
+                  '${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
                   style: pw.TextStyle(
-                    fontSize: 24,
-                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 12,
+                    color: PdfColors.grey500,
                   ),
                 ),
-              ),
-              pw.SizedBox(height: 20),
+              ],
+            ),
+            
+            pw.Divider(thickness: 1, color: PdfColors.grey300),
+            pw.SizedBox(height: 20),
+
+            // Liste des actions
+            if (_historiqueActions.isEmpty)
+              pw.Center(
+                child: pw.Text(
+                  'Aucune action terminée',
+                  style: pw.TextStyle(
+                    fontSize: 16,
+                    color: PdfColors.grey500,
+                  ),
+                ),
+              )
+            else
               ..._historiqueActions.map((action) {
                 final data = action.data() as Map<String, dynamic>;
                 final participations = _participationsParAction[action.id] ?? [];
 
-                return pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(data['titre'] ?? 'Action sans titre',
-                        style: pw.TextStyle(
-                            fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                    pw.Text(
-                        'Terminée le ${data['dateFin']} • ${participations.length} participant${participations.length > 1 ? 's' : ''}'),
-                    pw.SizedBox(height: 8),
-                    pw.Text('Participants:',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                    participations.isEmpty
-                        ? pw.Text('Aucune participation enregistrée')
-                        : pw.Column(
-                            children: participations.map((participation) {
-                              final partData =
-                                  participation.data() as Map<String, dynamic>;
-                              return pw.Padding(
-                                padding: const pw.EdgeInsets.only(left: 16, top: 4),
-                                child: pw.Text(
-                                    '- ${partData['nomComplet'] ?? 'Participant inconnu'} (${partData['email'] ?? ''})'),
-                              );
-                            }).toList(),
+                return pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 16),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey200, width: 1),
+                    borderRadius: pw.BorderRadius.circular(8),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      // En-tête de l'action
+                      pw.Container(
+                        width: double.infinity,
+                        padding: const pw.EdgeInsets.all(12),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.blue50,
+                          borderRadius: const pw.BorderRadius.only(
+                            topLeft: pw.Radius.circular(8),
+                            topRight: pw.Radius.circular(8),
                           ),
-                    pw.Divider(),
-                    pw.SizedBox(height: 16),
-                  ],
+                        ),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text(
+                              data['titre'] ?? 'Action sans titre',
+                              style: pw.TextStyle(
+                                fontSize: 16,
+                                fontWeight: pw.FontWeight.bold,
+                                color: PdfColors.blue900,
+                              ),
+                            ),
+                            pw.SizedBox(height: 4),
+                            pw.Text(
+                              'Terminée le ${data['dateFin']} • ${participations.length} participant${participations.length > 1 ? 's' : ''} présent${participations.length > 1 ? 's' : ''}',
+                              style: pw.TextStyle(
+                                fontSize: 12,
+                                color: PdfColors.grey600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      // Participants
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(12),
+                        child: participations.isEmpty
+                            ? pw.Text(
+                                'Aucun participant présent',
+                                style: pw.TextStyle(
+                                  fontSize: 12,
+                                  color: PdfColors.grey500,
+                                  fontStyle: pw.FontStyle.italic,
+                                ),
+                              )
+                            : pw.Column(
+                                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                                children: [
+                                  pw.Text(
+                                    'Participants présents:',
+                                    style: pw.TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: pw.FontWeight.bold,
+                                      color: PdfColors.grey700,
+                                    ),
+                                  ),
+                                  pw.SizedBox(height: 8),
+                                  ...participations.map((participation) {
+                                    final partData = participation.data() as Map<String, dynamic>;
+                                    return pw.Container(
+                                      margin: const pw.EdgeInsets.only(bottom: 4),
+                                      child: pw.Text(
+                                        '• ${partData['nomComplet'] ?? 'Participant inconnu'}',
+                                        style: pw.TextStyle(
+                                          fontSize: 11,
+                                          color: PdfColors.grey600,
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
                 );
               }).toList(),
-            ],
-          );
-        },
-      ),
-    );
+          ],
+        );
+      },
+    ),
+  );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-    );
-  }
-
+  await Printing.layoutPdf(
+    onLayout: (PdfPageFormat format) async => pdf.save(),
+  );
+}
   // Widgets pour l'affichage
   Widget _buildParticipantList(List<DocumentSnapshot> participations) {
     return Column(
@@ -185,7 +289,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
         Padding(
           padding: const EdgeInsets.only(left: 16, top: 8, bottom: 8),
           child: Text(
-            'Participants:',
+            'Participants présents:',
             style: TextStyle(
               color: textPrimary,
               fontWeight: FontWeight.w600,
@@ -196,7 +300,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
-              'Aucune participation enregistrée',
+              'Aucun participant présent',
               style: TextStyle(color: textSecondary),
             ),
           )
@@ -214,9 +318,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
                 partData['email'] ?? '',
                 style: TextStyle(color: textSecondary),
               ),
-              trailing: partData['participationConfirmee'] == true
-                  ? Icon(Icons.verified, color: successColor)
-                  : Icon(Icons.pending, color: warningColor),
+              trailing: Icon(Icons.verified, color: successColor),
             );
           }).toList(),
       ],
@@ -256,7 +358,7 @@ class _HistoriquePageState extends State<HistoriquePage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Terminée le ${data['dateFin']} • ${participations.length} participant${participations.length > 1 ? 's' : ''}',
+                  'Terminée le ${data['dateFin']} • ${participations.length} participant${participations.length > 1 ? 's' : ''} présent${participations.length > 1 ? 's' : ''}',
                   style: TextStyle(color: textSecondary),
                 ),
               ],

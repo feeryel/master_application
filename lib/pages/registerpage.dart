@@ -12,9 +12,6 @@ const List<String> tunisianGovernorates = [
   'Sousse', 'Tataouine', 'Tozeur', 'Tunis', 'Zaghouan'
 ];
 
-
-
-
 const List<String> establishmentCategories = [
   'École',
   'Institut',
@@ -22,6 +19,7 @@ const List<String> establishmentCategories = [
   'Hôpital',
   'Société privée'
 ];
+
 // Map des universités tunisiennes avec leurs établissements
 const Map<String, List<String>> tunisianUniversities = {
   'Université de Tunis': [
@@ -136,8 +134,7 @@ class _RegisterPageState extends State<RegisterPage> {
   String selectedRole = 'etudiant';
   String? selectedUniversity;
   String? selectedInstitution;
-    String? selectedCategory;
-
+  String? selectedCategory;
 
   @override
   void initState() {
@@ -250,7 +247,7 @@ class _RegisterPageState extends State<RegisterPage> {
       case 'etablissement':
         return {
           'nom': nomController.text.trim(),
-        'categorie': selectedCategory, // Correction ici
+          'categorie': selectedCategory,
           'region': regionController.text.trim(),
           'numTel': telController.text.trim(),
         };
@@ -350,6 +347,43 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 
+  // CORRECTION : Widget Dropdown avec Expanded
+  Widget _buildDropdown({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required void Function(String?) onChanged,
+    required String? Function(String?) validator,
+    IconData? icon,
+    bool isExpanded = true,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: DropdownButtonFormField<String>(
+        value: value,
+        isExpanded: true, // ESSENTIEL pour éviter le débordement
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: icon != null ? Icon(icon, color: const Color(0xFF226D68)) : null,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        ),
+        items: items.map((String item) {
+          return DropdownMenuItem<String>(
+            value: item,
+            child: Text(
+              item,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          );
+        }).toList(),
+        onChanged: onChanged,
+        validator: validator,
+      ),
+    );
+  }
+
   Widget _buildRoleChip(String label, String value) {
     return ChoiceChip(
       label: Text(label),
@@ -429,56 +463,39 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                           const SizedBox(height: 16),
                           _buildTextField(nomController, "Nom", validator: true, icon: Icons.person),
+                          
                           if (selectedRole == 'etudiant')
                             _buildTextField(prenomController, "Prénom", validator: true, icon: Icons.person_outline),
+                          
                           const SizedBox(height: 8),
                           _buildPhoneField(),
-                          
+                                                    const SizedBox(height: 8),
+
                           // Champs spécifiques pour les étudiants
                           if (selectedRole == 'etudiant') ...[
-                            const SizedBox(height: 16),
-                            DropdownButtonFormField<String>(
+                            _buildDropdown(
+                              label: "Université",
                               value: selectedUniversity,
-                              decoration: InputDecoration(
-                                labelText: "Université",
-                                prefixIcon: const Icon(Icons.school, color: Color(0xFF226D68)),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                              ),
-                              items: tunisianUniversities.keys.map((String university) {
-                                return DropdownMenuItem<String>(
-                                  value: university,
-                                  child: Text(university),
-                                );
-                              }).toList(),
+                              items: tunisianUniversities.keys.toList(),
                               onChanged: (String? newValue) {
                                 setState(() {
                                   selectedUniversity = newValue;
-                                  selectedInstitution = null; // Reset institution when university changes
+                                  selectedInstitution = null;
                                 });
                               },
                               validator: (value) {
                                 if (value == null || value.isEmpty) return 'Veuillez sélectionner une université';
                                 return null;
                               },
+                              icon: Icons.school,
                             ),
-                            const SizedBox(height: 16),
-                            DropdownButtonFormField<String>(
+                            
+                            _buildDropdown(
+                              label: "Établissement",
                               value: selectedInstitution,
-                              decoration: InputDecoration(
-                                labelText: "Établissement",
-                                prefixIcon: const Icon(Icons.account_balance, color: Color(0xFF226D68)),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                              ),
                               items: selectedUniversity != null 
-                                ? tunisianUniversities[selectedUniversity]!.map((String institution) {
-                                    return DropdownMenuItem<String>(
-                                      value: institution,
-                                      child: Text(institution),
-                                    );
-                                  }).toList()
-                                : [],
+                                  ? tunisianUniversities[selectedUniversity]! 
+                                  : [],
                               onChanged: (String? newValue) {
                                 setState(() {
                                   selectedInstitution = newValue;
@@ -488,8 +505,9 @@ class _RegisterPageState extends State<RegisterPage> {
                                 if (value == null || value.isEmpty) return 'Veuillez sélectionner un établissement';
                                 return null;
                               },
+                              icon: Icons.account_balance,
                             ),
-                            const SizedBox(height: 16),
+                            
                             _buildTextField(
                               numInscriptionController, 
                               "Numéro d'inscription", 
@@ -504,21 +522,10 @@ class _RegisterPageState extends State<RegisterPage> {
                           ],
                           
                           if (selectedRole == 'etablissement') ...[
-                            const SizedBox(height: 16),
-                   DropdownButtonFormField<String>(
+                            _buildDropdown(
+                              label: "Catégorie",
                               value: selectedCategory,
-                              decoration: InputDecoration(
-                                labelText: "Catégorie",
-                                prefixIcon: const Icon(Icons.category, color: Color(0xFF226D68)),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                              ),
-                              items: establishmentCategories.map((String category) {
-                                return DropdownMenuItem<String>(
-                                  value: category,
-                                  child: Text(category),
-                                );
-                              }).toList(),
+                              items: establishmentCategories,
                               onChanged: (String? newValue) {
                                 setState(() {
                                   selectedCategory = newValue;
@@ -528,22 +535,13 @@ class _RegisterPageState extends State<RegisterPage> {
                                 if (value == null || value.isEmpty) return 'Veuillez sélectionner une catégorie';
                                 return null;
                               },
+                              icon: Icons.category,
                             ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
+                            
+                            _buildDropdown(
+                              label: "Région",
                               value: regionController.text.isEmpty ? null : regionController.text,
-                              decoration: InputDecoration(
-                                labelText: "Région",
-                                prefixIcon: const Icon(Icons.location_on, color: Color(0xFF226D68)),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                              ),
-                              items: tunisianGovernorates.map((String governorate) {
-                                return DropdownMenuItem<String>(
-                                  value: governorate,
-                                  child: Text(governorate),
-                                );
-                              }).toList(),
+                              items: tunisianGovernorates,
                               onChanged: (String? newValue) {
                                 setState(() {
                                   regionController.text = newValue ?? '';
@@ -553,17 +551,19 @@ class _RegisterPageState extends State<RegisterPage> {
                                 if (value == null || value.isEmpty) return 'Veuillez sélectionner une région';
                                 return null;
                               },
+                              icon: Icons.location_on,
                             ),
                           ],
+                          
                           if (selectedRole == 'entreprise') ...[
-                            const SizedBox(height: 16),
                             _buildTextField(rneController, "RNE", validator: true, icon: Icons.business),
                             _buildTextField(codeFiscaleController, "Code fiscale", validator: true, icon: Icons.credit_card),
                           ],
-                          const SizedBox(height: 16),
-
+                          
+                          const SizedBox(height: 8),
                           _buildTextField(emailController, "Email", 
                             type: TextInputType.emailAddress, validator: true, icon: Icons.email),
+                          
                           _buildTextField(passwordController, "Mot de passe",
                             obscure: _obscurePassword, validator: true,
                             icon: Icons.lock,
@@ -572,6 +572,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                             ),
                           ),
+                          
                           const SizedBox(height: 24),
                           SizedBox(
                             width: double.infinity,
@@ -588,6 +589,7 @@ class _RegisterPageState extends State<RegisterPage> {
                                   : const Text("S'inscrire", style: TextStyle(color: Colors.white)),
                             ),
                           ),
+                          
                           const SizedBox(height: 16),
                           TextButton(
                             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginPage())),
@@ -609,14 +611,11 @@ class _RegisterPageState extends State<RegisterPage> {
 }
 
 class _TunisianPhoneInputFormatter extends TextInputFormatter {
-  
   @override
-  
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-   
     String newText = '+216';
     if (newValue.text.length > 4) {
       final digits = newValue.text.substring(4).replaceAll(RegExp(r'[^0-9]'), '');

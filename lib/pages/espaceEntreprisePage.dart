@@ -1222,40 +1222,41 @@ class _EspaceEntreprisePageState extends State<EspaceEntreprisePage> {
           ],
         ),
         const SizedBox(height: 20),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 1.6,
-          children: [
-            _buildQuickAccessButton(
-              "Actions à sponsoriser",
-              Icons.volunteer_activism_rounded,
-              primaryColor,
-              () => setState(() => _currentIndex = 1),
-            ),
-            _buildQuickAccessButton(
-              "Actions sponsorisées",
-              Icons.verified_rounded,
-              successColor,
-              () => setState(() => _currentIndex = 2),
-            ),
-            _buildQuickAccessButton(
-              "Établissements",
-              Icons.business_rounded,
-              secondaryColor,
-              () => setState(() => _currentIndex = 3),
-            ),
-            _buildQuickAccessButton(
-              "Mon entreprise",
-              Icons.info_outline_rounded,
-              accentColor,
-              _showInformationsDialog,
-            ),
-          ],
-        ),
+   GridView.count(
+  crossAxisCount: 2,
+  crossAxisSpacing: 16,
+  mainAxisSpacing: 16,
+  childAspectRatio: 1, // Adjusted to allow more height
+  shrinkWrap: true,
+  physics: const NeverScrollableScrollPhysics(),
+  padding: const EdgeInsets.all(16), // Ajouter du padding
+  children: [
+    _buildQuickAccessButton(
+      "Actions à sponsoriser",
+      Icons.volunteer_activism_rounded,
+      primaryColor,
+      () => setState(() => _currentIndex = 1),
+    ),
+    _buildQuickAccessButton(
+      "Actions sponsorisées",
+      Icons.verified_rounded,
+      successColor,
+      () => setState(() => _currentIndex = 2),
+    ),
+    _buildQuickAccessButton(
+      "Établissements",
+      Icons.business_rounded,
+      secondaryColor,
+      () => setState(() => _currentIndex = 3),
+    ),
+    _buildQuickAccessButton(
+      "Mon entreprise",
+      Icons.info_outline_rounded,
+      accentColor,
+      _showInformationsDialog,
+    ),
+  ],
+),
       ],
     );
   }
